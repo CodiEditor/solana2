@@ -1,0 +1,22 @@
+{
+  "name": "solanaos",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:testnet": "vite --mode testnet",
+    "dev:mainnet": "vite --mode mainnet",
+    "build": "tsc && vite build",
+    "build:testnet": "tsc && vite build --mode testnet",
+    "build:mainnet": "tsc && vite build --mode mainnet",
+    "build:all": "npm run build:testnet && npm run build:mainnet",
+    "preview": "vite preview",
+    "preview:testnet": "vite preview --mode testnet",
+    "preview:mainnet": "vite preview --mode mainnet"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.2",
+    "vite": "^6.2.0"
+  }
+}
