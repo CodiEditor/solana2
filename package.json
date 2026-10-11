@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "tsx watch server/index.ts",
     "dev:testnet": "vite --mode testnet",
     "dev:mainnet": "vite --mode mainnet",
     "build": "tsc && vite build",
@@ -13,10 +14,26 @@
     "build:all": "npm run build:testnet && npm run build:mainnet",
     "preview": "vite preview",
     "preview:testnet": "vite preview --mode testnet",
-    "preview:mainnet": "vite preview --mode mainnet"
+    "preview:mainnet": "vite preview --mode mainnet",
+    "start": "node --import tsx/esm server/index.ts",
+    "start:prod": "npm run build && npm start"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^26.6.5",
     "typescript": "~5.6.2",
     "vite": "^6.2.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "morgan": "^1.12.1",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
   }
 }

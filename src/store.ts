@@ -1,4 +1,5 @@
 import type { MinerState, Network, WalletState } from './types'
+import { apiFetch } from './api'
 
 const LS_WALLET='solanaos:wallet'
 const LS_WALLET_SOL='solanaos:sol'
@@ -61,7 +62,13 @@ export function startMining(){
     miner.hashrate = Math.round(base)
     if(Math.random()<0.18 + miner.intensity/600){
       miner.shares++
-      if(Math.random()<0.82){ miner.accepted++; miner.session+=0.0007 + Math.random()*0.0008; miner.balance=miner.session + Number(localStorage.getItem(LS_MINER_BAL) ?? '0') }
+      if(Math.random()<0.82){
+        miner.accepted++; miner.session+=0.0007 + Math.random()*0.0008; miner.balance=miner.session + Number(localStorage.getItem(LS_MINER_BAL) ?? '0')
+        // sync ke backend kalau ada wallet
+        if(wallet.address){
+          apiFetch('/mining/submit', { method:'POST', body: JSON.stringify({ address: wallet.address, hashrate: miner.hashrate, shares: miner.shares }) }).catch(()=>{})
+        }
+      }
     }
     localStorage.setItem(LS_MINER_SESSION, String(miner.session))
     hashCallback?.(miner, fmtUptime(uptimeSec))
