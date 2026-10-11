@@ -10,3 +10,4 @@ export default defineConfig(({ mode }) => ({
     __APP_MODE__: JSON.stringify(mode),
   },
 }))
+
