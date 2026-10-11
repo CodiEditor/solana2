@@ -3,14 +3,15 @@ import type { MinerState, Network, WalletState } from './types'
 const LS_WALLET='solanaos:wallet'
 const LS_WALLET_SOL='solanaos:sol'
 const LS_WALLET_SOLANA='solanaos:solana'
+const LS_WALLET_PROVIDER='solanaos:provider'
+const LS_WALLET_CHAIN='solanaos:chain'
 const LS_MINER_BAL='solanaos:miner-balance'
 const LS_MINER_SESSION='solanaos:miner-session'
 
-// Vite env is injected at build time — determines testnet/mainnet builds
+// Vite env
 const ENV_NETWORK = (import.meta.env.VITE_SOLANA_NETWORK as Network | undefined) ?? 'devnet'
 const ENV_RPC = import.meta.env.VITE_SOLANA_RPC as string | undefined
 
-// migrate old solx key if exists
 if(!localStorage.getItem(LS_WALLET_SOLANA) && localStorage.getItem('solanaos:solx')){
   localStorage.setItem(LS_WALLET_SOLANA, localStorage.getItem('solanaos:solx')!)
 }
@@ -19,7 +20,9 @@ export const wallet: WalletState = {
   address: localStorage.getItem(LS_WALLET),
   sol: Number(localStorage.getItem(LS_WALLET_SOL) ?? '0'),
   solana: Number(localStorage.getItem(LS_WALLET_SOLANA) ?? '0'),
-  network: (localStorage.getItem('solanaos:network') as Network) ?? ENV_NETWORK
+  network: (localStorage.getItem('solanaos:network') as Network) ?? ENV_NETWORK,
+  provider: (localStorage.getItem(LS_WALLET_PROVIDER) as WalletState['provider']) ?? null,
+  chain: (localStorage.getItem(LS_WALLET_CHAIN) as WalletState['chain']) ?? null,
 }
 
 export const miner: MinerState = {
@@ -86,18 +89,37 @@ export function setIntensity(v:number){ miner.intensity=v }
 export function walletBalanceString(){ return `${wallet.sol.toFixed(4)} SOL` }
 export function solanaString(){ return wallet.solana.toFixed(2) }
 
-export function setWallet(addr:string){
-  wallet.address=addr
-  wallet.sol = 1.24 + Math.random()*2
-  wallet.solana = miner.balance*1200 + Math.random()*50
-  localStorage.setItem(LS_WALLET, addr)
+function persistWallet(){
+  if(wallet.address) localStorage.setItem(LS_WALLET, wallet.address)
   localStorage.setItem(LS_WALLET_SOL, String(wallet.sol))
   localStorage.setItem(LS_WALLET_SOLANA, String(wallet.solana))
+  if(wallet.provider) localStorage.setItem(LS_WALLET_PROVIDER, wallet.provider)
+  else localStorage.removeItem(LS_WALLET_PROVIDER)
+  if(wallet.chain) localStorage.setItem(LS_WALLET_CHAIN, wallet.chain)
+  else localStorage.removeItem(LS_WALLET_CHAIN)
   balanceCallback?.()
 }
+
+export function setWallet(addr:string, provider: WalletState['provider'] = 'manual', chain: WalletState['chain'] = 'solana'){
+  wallet.address=addr
+  wallet.provider=provider
+  wallet.chain=chain
+  wallet.sol = 1.24 + Math.random()*2
+  wallet.solana = miner.balance*1200 + Math.random()*50
+  persistWallet()
+}
 export function disconnectWallet(){
+  // try to disconnect providers gracefully
+  try{
+    const sol = (window as any).solana
+    if(sol?.disconnect) sol.disconnect()
+  }catch{}
   wallet.address=null
+  wallet.provider=null
+  wallet.chain=null
   localStorage.removeItem(LS_WALLET)
+  localStorage.removeItem(LS_WALLET_PROVIDER)
+  localStorage.removeItem(LS_WALLET_CHAIN)
   balanceCallback?.()
 }
 
@@ -119,4 +141,74 @@ export function addCreditsToWallet(){
   wallet.solana += add*900
   localStorage.setItem(LS_WALLET_SOLANA, String(wallet.solana))
   balanceCallback?.()
+}
+
+// --- Real extension helpers ---
+
+declare global {
+  interface Window {
+    solana?: any
+    phantom?: any
+    ethereum?: any
+  }
+}
+
+export function hasPhantom(): boolean {
+  const w = window as any
+  return !!(w.solana?.isPhantom || w.phantom?.solana?.isPhantom)
+}
+export function hasMetaMask(): boolean {
+  const eth = (window as any).ethereum
+  return !!(eth?.isMetaMask)
+}
+
+export async function connectPhantom(): Promise<string> {
+  const w = window as any
+  const sol = w.solana ?? w.phantom?.solana
+  if(!sol) throw new Error('Phantom not found')
+  // Phantom connect
+  const resp = await sol.connect({ onlyIfTrusted: false })
+  const pubkey = resp?.publicKey?.toString?.() ?? sol.publicKey?.toString?.()
+  if(!pubkey) throw new Error('No publicKey from Phantom')
+  setWallet(pubkey, 'phantom', 'solana')
+  // listen for disconnect/account change
+  try{
+    sol.on?.('disconnect', ()=> { disconnectWallet() })
+    sol.on?.('accountChanged', (pk:any)=> {
+      if(!pk) disconnectWallet()
+      else {
+        const addr = pk?.toString?.() ?? String(pk)
+        wallet.address = addr; persistWallet()
+      }
+    })
+  }catch{}
+  return pubkey
+}
+
+export async function connectMetaMask(): Promise<string> {
+  const eth = (window as any).ethereum
+  if(!eth) throw new Error('MetaMask not found')
+  // handle multiple providers
+  const provider = eth.providers?.find?.((p:any)=>p.isMetaMask) ?? eth
+  const accounts: string[] = await provider.request({ method: 'eth_requestAccounts' })
+  const addr = accounts?.[0]
+  if(!addr) throw new Error('No account from MetaMask')
+  setWallet(addr, 'metamask', 'evm')
+  try{
+    provider.on?.('accountsChanged', (accs:string[])=>{
+      if(!accs?.length) disconnectWallet()
+      else { wallet.address=accs[0]; persistWallet() }
+    })
+    provider.on?.('chainChanged', ()=> balanceCallback?.())
+    provider.on?.('disconnect', ()=> disconnectWallet())
+  }catch{}
+  return addr
+}
+
+export function providerLabel(): string {
+  if(!wallet.provider) return 'no wallet'
+  if(wallet.provider==='phantom') return 'Phantom ✓'
+  if(wallet.provider==='metamask') return 'MetaMask ✓'
+  if(wallet.provider==='solflare') return 'Solflare ✓'
+  return wallet.provider
 }
