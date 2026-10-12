@@ -150,11 +150,6 @@ function getLeaderboard(sort: 'credits' | 'hashes' = 'credits') {
 
 // ---------- API ----------
 
-// Root for health check (Railway needs 200 on /)
-app.get('/', (_req, res) => {
-  res.json({ ok: true, service: 'solanaos-api', version: VERSION, docs: '/api/ping' })
-})
-
 app.get('/api/ping', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString(), service: 'solanaos-api', version: VERSION, env: NODE_ENV })
 })
