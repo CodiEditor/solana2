@@ -1,11 +1,11 @@
-// Helper API Railway - support 2 mode:
-// - Proxy mode (vercel.json + vite proxy): VITE_API_BASE kosong -> fetch /api/... (bebas CORS)
-// - Direct mode: VITE_API_BASE=https://solana2-production.up.railway.app -> fetch langsung (butuh CORS di Railway)
-const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
+// Helper terpusat untuk panggil API Railway via proxy Vercel
+// Di local (vite dev) -> /api diproxy ke Railway via vite.config.ts
+// Di production (Vercel) -> /api direwrite ke Railway via vercel.json
+// Jadi frontend cukup panggil path relatif /api/...
+const API_BASE = '' // kosong = pakai origin yang sama (proxy/rewrite)
 
 export async function apiFetch(path: string, init?: RequestInit) {
-  const normalizedPath = path.startsWith('/api') ? path : `/api${path.startsWith('/') ? path : '/' + path}`
-  const url = API_BASE ? `${API_BASE}${normalizedPath}` : normalizedPath
+  const url = path.startsWith('/api') ? path : `/api${path.startsWith('/') ? path : '/' + path}`
   const res = await fetch(url, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
