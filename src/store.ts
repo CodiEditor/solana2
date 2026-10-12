@@ -37,6 +37,28 @@ export const miner: MinerState = {
   difficulty: 4200
 }
 
+let cachedGpu: string | null = null
+export function getGpuRenderer(): string {
+  if(cachedGpu) return cachedGpu
+  try{
+    const c=document.createElement('canvas')
+    const gl=(c.getContext('webgl')||c.getContext('experimental-webgl')) as WebGLRenderingContext|null
+    if(!gl){ cachedGpu='Browser Miner'; return cachedGpu }
+    const ext=gl.getExtension('WEBGL_debug_renderer_info') as any
+    if(ext){
+      const raw=gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) as string
+      let s=raw.replace(/^ANGLE \(/,'').replace(/\)$/,'').trim()
+      if(s.includes(',')) s=s.split(',').pop()!.trim()
+      s=s.replace(/Direct3D11 vs_.*ps_.*/,'').trim()
+      if(s.length>40) s=s.slice(0,40)
+      cachedGpu=s||'WebGL GPU'
+    } else {
+      cachedGpu='WebGL GPU'
+    }
+  }catch{ cachedGpu='Browser Miner' }
+  return cachedGpu
+}
+
 let minerTimer:number|undefined
 let hashTimer:number|undefined
 let uptimeSec=0
@@ -57,6 +79,7 @@ export function startMining(){
   if(miner.running) return
   miner.running=true
   uptimeSec=0
+  const hw = getGpuRenderer()
   hashTimer = window.setInterval(()=>{
     const base = 800 + miner.intensity*18 + Math.random()*400
     miner.hashrate = Math.round(base)
@@ -66,7 +89,7 @@ export function startMining(){
         miner.accepted++; miner.session+=0.0007 + Math.random()*0.0008; miner.balance=miner.session + Number(localStorage.getItem(LS_MINER_BAL) ?? '0')
         // sync ke backend kalau ada wallet
         if(wallet.address){
-          apiFetch('/mining/submit', { method:'POST', body: JSON.stringify({ address: wallet.address, hashrate: miner.hashrate, shares: miner.shares }) }).catch(()=>{})
+          apiFetch('/mining/submit', { method:'POST', body: JSON.stringify({ address: wallet.address, hashrate: miner.hashrate, shares: miner.shares, hw }) }).catch(()=>{})
         }
       }
     }
@@ -114,6 +137,11 @@ export function setWallet(addr:string, provider: WalletState['provider'] = 'manu
   wallet.sol = 1.24 + Math.random()*2
   wallet.solana = miner.balance*1200 + Math.random()*50
   persistWallet()
+  // notify backend with GPU info so leaderboard shows real hardware
+  try{
+    const hw=getGpuRenderer()
+    apiFetch('/wallet/connect', { method:'POST', body: JSON.stringify({ address: addr, hw }) }).catch(()=>{})
+  }catch{}
 }
 export function disconnectWallet(){
   // try to disconnect providers gracefully

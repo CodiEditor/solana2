@@ -62,8 +62,8 @@ app.use('/api/', globalLimiter)
 
 // ---------- Persistence (file-based, survives restart if volume exists) ----------
 const DATA_FILE = path.resolve(__dirname, '..', 'data.json')
-type Share = { address: string; hashrate: number; at: number; credits: number }
-type Wallet = { balance: number; sol: number; solana: number; createdAt: number; lastSeen: number }
+type Share = { address: string; hashrate: number; at: number; credits: number; hw?: string }
+type Wallet = { balance: number; sol: number; solana: number; createdAt: number; lastSeen: number; hw?: string }
 
 let shares: Share[] = []
 const wallets = new Map<string, Wallet>()
@@ -124,20 +124,33 @@ const submitSchema = z.object({
   address: z.string().min(10).max(64).regex(/^[A-Za-z0-9]+$/, 'address must be alphanumeric'),
   hashrate: z.number().min(1).max(50_000).optional().default(1200),
   shares: z.number().int().min(1).max(100).optional().default(1),
+  hw: z.string().min(2).max(80).optional(),
 })
 const walletConnectSchema = z.object({
   address: z.string().min(10).max(64),
+  hw: z.string().min(2).max(80).optional(),
 })
 const addressParamSchema = z.string().min(10).max(64)
 
 // ---------- Helpers ----------
 function shortAddr(a: string) { return a.slice(0, 4) + '…' + a.slice(-4) }
+function cleanHw(raw?: string){
+  if(!raw) return 'Browser Miner'
+  // strip vendor prefix like "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 ...)" -> "RTX 4060"
+  let s = raw.replace(/^ANGLE \(/,'').replace(/\)$/,'').trim()
+  // keep last chunk after comma
+  if(s.includes(',')) s = s.split(',').pop()!.trim()
+  // shorten intel/apple/nvidia verbose strings
+  s = s.replace(/Direct3D11 vs_.*ps_.*/, '').trim()
+  if(s.length>40) s=s.slice(0,40)
+  return s || 'Browser Miner'
+}
 function getLeaderboard(sort: 'credits' | 'hashes' = 'credits') {
   const userBoard = [...wallets.entries()].map(([addr, w]) => ({
     rank: 0,
     address: shortAddr(addr),
     full: addr,
-    hw: 'Your Rig',
+    hw: cleanHw(w.hw),
     hashes: Math.round(w.balance * 1_200_000),
     credits: Number(w.balance.toFixed(4)),
     sol: w.sol,
@@ -231,7 +244,7 @@ app.post('/api/mining/submit', miningLimiter, (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() })
   }
-  const { address, hashrate, shares: shareCount } = parsed.data
+  const { address, hashrate, shares: shareCount, hw } = parsed.data
   const h = Number(hashrate) || 1200
 
   // anti-cheat: cooldown 150ms per address
@@ -251,7 +264,7 @@ app.post('/api/mining/submit', miningLimiter, (req, res) => {
   const at = Date.now()
 
   // push shares (one entry per submit, not per shareCount to keep memory sane)
-  shares.push({ address, hashrate: h, at, credits })
+  shares.push({ address, hashrate: h, at, credits, hw: hw ? cleanHw(hw) : undefined })
   totalHashes += h
   totalSharesAccepted += shareCount ?? 1
 
@@ -260,6 +273,7 @@ app.post('/api/mining/submit', miningLimiter, (req, res) => {
   w.balance += credits
   w.solana += credits * 900
   w.lastSeen = Date.now()
+  if(hw) w.hw = cleanHw(hw)
   wallets.set(address, w)
 
   // keep last 5000 shares max
@@ -291,13 +305,14 @@ app.get('/api/wallet/:address', walletLimiter, (req, res) => {
 app.post('/api/wallet/connect', walletLimiter, (req, res) => {
   const parsed = walletConnectSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() })
-  const { address } = parsed.data
+  const { address, hw } = parsed.data
   let w = wallets.get(address)
   if (!w) {
-    w = { balance: 0, sol: 1.24 + Math.random() * 2, solana: Math.random() * 50, createdAt: Date.now(), lastSeen: Date.now() }
+    w = { balance: 0, sol: 1.24 + Math.random() * 2, solana: Math.random() * 50, createdAt: Date.now(), lastSeen: Date.now(), hw: hw ? cleanHw(hw) : undefined }
     wallets.set(address, w)
   } else {
     w.lastSeen = Date.now()
+    if(hw) w.hw = cleanHw(hw)
   }
   res.json({ ok: true, wallet: { address, ...w } })
 })
