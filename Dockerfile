@@ -1,8 +1,8 @@
 FROM node:20-alpine
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production --ignore-scripts || npm install --production
-COPY server ./server
-COPY dist ./dist
+RUN npm ci
+COPY . .
+RUN npm run build
 EXPOSE 3000
-CMD ["node", "--import", "tsx/esm", "server/index.ts"]
+CMD ["npm", "start"]
