@@ -6,4 +6,4 @@ COPY . .
 RUN ls -R /app/server
 COPY data.json ./
 EXPOSE 3000
-CMD ["node", "server/index.ts"]
+CMD ["npm", "start"]
