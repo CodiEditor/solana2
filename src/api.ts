@@ -3,12 +3,32 @@
 // Di production (Vercel) -> /api direwrite ke Railway via vercel.json
 // Jadi frontend cukup panggil path relatif /api/...
 const API_BASE = '' // kosong = pakai origin yang sama (proxy/rewrite)
+const AUTH_TOKEN_KEY = 'aetheros:auth'
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+export function setAuthToken(token: string): void {
+  console.log('🔑 Setting auth token:', token ? 'token present' : 'token empty')
+  localStorage.setItem(AUTH_TOKEN_KEY, token)
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem(AUTH_TOKEN_KEY)
+}
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = path.startsWith('/api') ? path : `/api${path.startsWith('/') ? path : '/' + path}`
+  const token = getAuthToken()
+  console.log('🔐 apiFetch: token from localStorage:', token ? 'found' : 'missing', 'for path:', path)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string> ?? {}) }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
   const res = await fetch(url, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers,
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')

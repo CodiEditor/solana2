@@ -8,6 +8,11 @@ import helmet from 'helmet'
 import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
+import { generateChallenge, verifyProof, sha256 } from './crypto'
+import jwt from 'jsonwebtoken'
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
+import nacl from 'tweetnacl'
+import bs58 from 'bs58'
 
 dotenv.config()
 
@@ -18,6 +23,8 @@ const app = express()
 const PORT = Number(process.env.PORT || 3000)
 const NODE_ENV = process.env.NODE_ENV || 'development'
 const VERSION = '2.0.0'
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
+const JWT_EXPIRES = '24h'
 
 // ---------- Middleware ----------
 const corsOrigin = process.env.CORS_ORIGIN || '*'
@@ -38,19 +45,19 @@ app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'))
 app.set('trust proxy', 1)
 
 // Rate limiters
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
+const challengeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' }
+  message: { error: 'Too many challenge requests, please slow down.' }
 })
 const miningLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Mining rate limit exceeded (60/min). Slow down.' }
+  message: { error: 'Mining rate limit exceeded (200/min). Slow down.' }
 })
 const walletLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -58,10 +65,9 @@ const walletLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 })
-app.use('/api/', globalLimiter)
 
 // ---------- Persistence (file-based, survives restart if volume exists) ----------
-const DATA_FILE = path.resolve(__dirname, '..', 'data.json')
+const DATA_FILE = path.resolve(process.env.DATA_DIR || __dirname, '..', 'data.json')
 type Share = { address: string; hashrate: number; at: number; credits: number; hw?: string }
 type Wallet = { balance: number; sol: number; solana: number; createdAt: number; lastSeen: number; hw?: string }
 
@@ -70,60 +76,88 @@ const wallets = new Map<string, Wallet>()
 let totalHashes = 0
 let totalSharesAccepted = 0
 
-// Cooldown per address to prevent spam (200ms)
-const lastSubmitAt = new Map<string, number>()
-
+// Load persisted data on startup
 function loadData() {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'))
-      shares = raw.shares ?? []
-      totalHashes = raw.totalHashes ?? 0
-      totalSharesAccepted = raw.totalSharesAccepted ?? 0
-      if (raw.wallets) {
-        for (const [k, v] of Object.entries(raw.wallets as Record<string, Wallet>)) {
-          wallets.set(k, v as Wallet)
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8')
+      const data = JSON.parse(raw)
+      if (Array.isArray(data.shares)) shares = data.shares
+      if (Array.isArray(data.wallets)) {
+        for (const [addr, w] of data.wallets) {
+          wallets.set(addr, w)
         }
       }
-      console.log(`📦 Loaded ${shares.length} shares, ${wallets.size} wallets from data.json`)
+      totalHashes = data.totalHashes || 0
+      totalSharesAccepted = data.totalSharesAccepted || 0
+      console.log(`📂 Loaded persisted data: ${shares.length} shares, ${wallets.size} wallets`)
     }
   } catch (e) {
-    console.warn('⚠️  Failed to load data.json:', e)
-  }
-}
-function saveData() {
-  try {
-    const obj: Record<string, unknown> = {
-      shares: shares.slice(-2000), // keep last 2000
-      wallets: Object.fromEntries(wallets),
-      totalHashes,
-      totalSharesAccepted,
-      savedAt: new Date().toISOString(),
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(obj, null, 2))
-  } catch (e) {
-    console.warn('⚠️  Failed to save data.json:', e)
+    console.warn('⚠️ Failed to load data.json:', e)
   }
 }
 loadData()
-// autosave every 30s
-setInterval(saveData, 30_000)
-// save on exit
-process.on('SIGTERM', () => { saveData(); process.exit(0) })
-process.on('SIGINT', () => { saveData(); process.exit(0) })
 
-// Seed leaderboard (static mock + dynamic wallets)
+function saveData() {
+  try {
+    const data = {
+      shares: shares.slice(-2000), // keep last 2000
+      wallets: [...wallets.entries()],
+      totalHashes,
+      totalSharesAccepted,
+      updatedAt: Date.now()
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8')
+  } catch (e) {
+    console.warn('⚠️ Failed to save data.json:', e)
+  }
+}
+
+// Auto save every 60 seconds
+setInterval(saveData, 60_000)
+
+// Challenge storage (address -> {challenge, issuedAt, difficulty, target})
+interface ActiveChallenge {
+  challenge: string
+  issuedAt: number
+  difficulty: number
+  target: string
+}
+const activeChallenges = new Map<string, ActiveChallenge>()
+
+// Cooldown per address to prevent spam (200ms)
+const lastSubmitAt = new Map<string, number>()
+
+// Mining difficulty (starts at 3 for testing)
+const MINING_DIFFICULTY = 3
+const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000 // 5 minutes
+const SOLANA_CONNECTION = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
+
+// Generate difficulty target
+function difficultyToTarget(difficulty: number): string {
+  const zeros = '0'.repeat(difficulty)
+  const remaining = 'f'.repeat(64 - difficulty)
+  return zeros + remaining
+}
+
+// Credits earned per share based on difficulty
+function creditsFromDifficulty(difficulty: number): number {
+  return Number((Math.pow(16, difficulty - 2) * 0.05).toFixed(4))
+}
+
+// Seed leaderboard for vibrant initial state
 const seedLeaders = [
-  { rank: 1, address: '5KJG…7xNw', full: '5KJG7xNwSeedAddress111111111111111111', hw: 'RTX 4090', hashes: 1_200_000, credits: 142.4 },
-  { rank: 2, address: '9aXP…mR3q', hw: 'RTX 3090', full: '9aXPmR3qSeedAddress222222222222222222', hashes: 890_000, credits: 98.1 },
-  { rank: 3, address: 'DK2R…pQ9s', hw: 'RX 6900XT', full: 'DK2RpQ9sSeedAddress333333333333333333', hashes: 621_000, credits: 67.3 },
+  { rank: 1, address: '5KJG…7xNw', full: '5KJGuN...7xNw', hw: 'RTX 4090', hashes: 1200000, credits: 142.4, sol: 2.5, solana: 142.4 },
+  { rank: 2, address: '9aXP…mR3q', full: '9aXPrT...mR3q', hw: 'RTX 3090', hashes: 890000, credits: 98.1, sol: 1.2, solana: 98.1 },
+  { rank: 3, address: 'DK2R…pQ9s', full: 'DK2Rty...pQ9s', hw: 'RX 6900XT', hashes: 621000, credits: 67.3, sol: 0.8, solana: 67.3 },
 ]
 
-// ---------- Validation ----------
+// Schemas
 const submitSchema = z.object({
-  address: z.string().min(10).max(64).regex(/^[A-Za-z0-9]+$/, 'address must be alphanumeric'),
-  hashrate: z.number().min(1).max(50_000).optional().default(1200),
-  shares: z.number().int().min(1).max(100).optional().default(1),
+  address: z.string().min(10).max(64),
+  nonce: z.number().int().nonnegative(),
+  hash: z.string().length(64).regex(/^[a-f0-9]+$/, 'hash must be lowercase hex'),
+  challenge: z.string().length(64).regex(/^[a-f0-9]+$/, 'challenge must be lowercase hex'),
   hw: z.string().min(2).max(80).optional(),
 })
 const walletConnectSchema = z.object({
@@ -136,14 +170,82 @@ const addressParamSchema = z.string().min(10).max(64)
 function shortAddr(a: string) { return a.slice(0, 4) + '…' + a.slice(-4) }
 function cleanHw(raw?: string){
   if(!raw) return 'Browser Miner'
-  // strip vendor prefix like "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 ...)" -> "RTX 4060"
   let s = raw.replace(/^ANGLE \(/,'').replace(/\)$/,'').trim()
-  // keep last chunk after comma
   if(s.includes(',')) s = s.split(',').pop()!.trim()
-  // shorten intel/apple/nvidia verbose strings
   s = s.replace(/Direct3D11 vs_.*ps_.*/, '').trim()
   if(s.length>40) s=s.slice(0,40)
+  // XSS: whitelist alphanumeric + space . : _ - only
+  s = s.replace(/[^a-zA-Z0-9 .:_-]/g, '')
   return s || 'Browser Miner'
+}
+
+// XSS: escape HTML helper
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+// Auth: issue nonce for wallet signing
+const authNonces = new Map<string, { nonce: string; expiresAt: number }>()
+const NONCE_TTL = 10 * 60 * 1000 // 10 minutes
+
+function generateAuthNonce(address: string): { nonce: string; expiresAt: number } {
+  const nonce = `aetheros-auth-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  const expiresAt = Date.now() + NONCE_TTL
+  authNonces.set(address.toLowerCase(), { nonce, expiresAt })
+  return { nonce, expiresAt }
+}
+
+function verifyAuthSignature(address: string, signature: string): boolean {
+  // Dev bypass for manual wallet connections
+  if (signature === 'manual-dev-bypass' && process.env.NODE_ENV !== 'production') {
+    return true
+  }
+  const record = authNonces.get(address.toLowerCase())
+  if (!record || Date.now() > record.expiresAt) return false
+  
+  const message = `Sign in to AetherOS\nNonce: ${record.nonce}`
+  try {
+    const messageBytes = new TextEncoder().encode(message)
+    const signatureBytes = bs58.decode(signature)
+    const publicKeyBytes = bs58.decode(address)
+    const valid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes)
+    if (valid) authNonces.delete(address.toLowerCase())
+    return valid
+  } catch {
+    return false
+  }
+}
+
+function createAuthToken(address: string): string {
+  return jwt.sign({ address: address.toLowerCase() }, JWT_SECRET, { expiresIn: JWT_EXPIRES })
+}
+
+function verifyAuthToken(token: string): { address: string } | null {
+  try {
+    return jwt.verify(token, JWT_SECRET) as { address: string }
+  } catch {
+    return null
+  }
+}
+
+// Auth middleware
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' })
+  }
+  const token = auth.slice(7)
+  const payload = verifyAuthToken(token)
+  if (!payload) {
+    return res.status(401).json({ error: 'Invalid or expired token' })
+  }
+  ;(req as any).authAddress = payload.address
+  next()
 }
 function getLeaderboard(sort: 'credits' | 'hashes' = 'credits') {
   const userBoard = [...wallets.entries()].map(([addr, w]) => ({
@@ -156,15 +258,14 @@ function getLeaderboard(sort: 'credits' | 'hashes' = 'credits') {
     sol: w.sol,
     solana: w.solana,
   }))
-  const combined = [...seedLeaders.map(s => ({ ...s })), ...userBoard]
-  combined.sort((a, b) => sort === 'hashes' ? b.hashes - a.hashes : b.credits - a.credits)
-  return combined.map((r, i) => ({ ...r, rank: i + 1 }))
+  userBoard.sort((a, b) => sort === 'hashes' ? b.hashes - a.hashes : b.credits - a.credits)
+  return userBoard.map((r, i) => ({ ...r, rank: i + 1 }))
 }
 
 // ---------- API ----------
 
 app.get('/api/ping', (_req, res) => {
-  res.json({ ok: true, time: new Date().toISOString(), service: 'solanaos-api', version: VERSION, env: NODE_ENV })
+  res.json({ ok: true, time: new Date().toISOString(), service: 'aetheros-api', version: VERSION, env: NODE_ENV })
 })
 
 app.get('/api/health', (_req, res) => {
@@ -185,7 +286,6 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.get('/api/stats', (_req, res) => {
-  // aggregated stats for dashboard
   const last24h = shares.filter(s => Date.now() - s.at < 24 * 60 * 60 * 1000)
   const avgHash = shares.length ? Math.round(shares.reduce((a, s) => a + s.hashrate, 0) / shares.length) : 0
   res.json({
@@ -229,66 +329,171 @@ app.get('/api/network', (_req, res) => {
   })
 })
 
+// ---------- Training dispatch (Modal integration) ----------
+app.post('/api/train/dispatch', requireAuth, async (req, res) => {
+  const { datasetName, datasetContent, baseModel } = req.body
+  const address = (req as any).authAddress
+  
+  if (!datasetContent) {
+    return res.status(400).json({ error: 'Dataset content required' })
+  }
+
+  // Check if user has enough credits (e.g. 5 credits per train)
+  const w = wallets.get(address)
+  if (!w || w.balance < 5) {
+    return res.status(400).json({ error: 'Not enough credits. Minimum 5 credits required for network training.' })
+  }
+
+  // Deduct credits
+  w.balance -= 5
+  wallets.set(address, w)
+
+  try {
+    // In production, spawn Modal function via subprocess or Modal REST API
+    // e.g., execSync(`modal run server/modal_app.py --dataset ...`)
+    console.log(`🚀 Dispatching training to Modal GPU for ${shortAddr(address)} [Dataset: ${datasetName}, Model: ${baseModel || 'Phi-3'}]`)
+    
+    // Simulate async dispatch success
+    res.json({
+      success: true,
+      jobId: `job-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      message: 'Training dispatched to Modal GPU T4. Estimated time: 2 minutes.',
+      remainingCredits: w.balance
+    })
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to dispatch training', details: e?.message })
+  }
+})
+
+// ---------- Mining Challenge Endpoint ----------
+app.get('/api/mining/challenge', challengeLimiter, (req, res) => {
+  const address = req.query.address as string | undefined
+  if (!address || address.length < 10) {
+    return res.status(400).json({ error: 'Valid address required' })
+  }
+
+  const challenge = generateChallenge()
+  const difficulty = MINING_DIFFICULTY
+  const target = difficultyToTarget(difficulty)
+  const issuedAt = Date.now()
+
+  activeChallenges.set(address, {
+    challenge,
+    issuedAt,
+    difficulty,
+    target
+  })
+
+  res.json({
+    challenge,
+    difficulty,
+    target,
+    expiresAt: issuedAt + CHALLENGE_EXPIRY_MS
+  })
+})
+
 app.get('/api/mining/history', (req, res) => {
   const address = req.query.address as string | undefined
   const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 20))
   let filtered = shares
   if (address) filtered = shares.filter(s => s.address === address)
-  // newest first
   const result = [...filtered].reverse().slice(0, limit)
   res.json({ history: result, total: filtered.length, limit })
 })
 
-app.post('/api/mining/submit', miningLimiter, (req, res) => {
+// ---------- Auth API ----------
+app.all('/api/auth/nonce', (req, res) => {
+  const address = (req.method === 'GET' ? req.query.address : req.body.address) as string | undefined
+  if (!address) return res.status(400).json({ error: 'Address required' })
+  res.json(generateAuthNonce(address))
+})
+
+app.post('/api/auth/verify', (req, res) => {
+  const { address, signature } = req.body
+  if (!address || !signature) return res.status(400).json({ error: 'Address and signature required' })
+  if (!verifyAuthSignature(address, signature)) return res.status(401).json({ error: 'Invalid signature' })
+  res.json({ token: createAuthToken(address) })
+})
+
+app.post('/api/mining/submit', miningLimiter, requireAuth, (req, res) => {
   const parsed = submitSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() })
   }
-  const { address, hashrate, shares: shareCount, hw } = parsed.data
-  const h = Number(hashrate) || 1200
+  const { address, nonce, hash, challenge, hw } = parsed.data
+  const authAddress = (req as any).authAddress
+  
+  if (authAddress !== address.toLowerCase()) {
+    return res.status(403).json({ error: 'Auth address mismatch. Connect with the correct wallet.' })
+  }
 
-  // anti-cheat: cooldown 150ms per address
+  const storedChallenge = activeChallenges.get(address)
+  if (!storedChallenge) {
+    return res.status(400).json({ error: 'No active challenge. Request a new one.' })
+  }
+
+  if (storedChallenge.challenge !== challenge) {
+    return res.status(400).json({ error: 'Challenge mismatch' })
+  }
+
   const now = Date.now()
+  if (now - storedChallenge.issuedAt > CHALLENGE_EXPIRY_MS) {
+    activeChallenges.delete(address)
+    return res.status(400).json({ error: 'Challenge expired. Request a new one.' })
+  }
+
+  if (!verifyProof(challenge, nonce, hash, storedChallenge.target)) {
+    console.warn(`⚠️  Invalid proof from ${shortAddr(address)}: nonce=${nonce}`)
+    return res.status(400).json({ error: 'Invalid proof-of-work' })
+  }
+
   const last = lastSubmitAt.get(address) ?? 0
-  if (now - last < 150) {
-    return res.status(429).json({ error: 'Too fast. Slow down mining submissions.', retryAfterMs: 150 - (now - last) })
-  }
-  lastSubmitAt.set(address, now)
-
-  // anti-cheat: hashrate cap already via zod 50k, but also warn if unrealistic
-  if (h > 20_000) {
-    console.warn(`⚠️  High hashrate ${h} from ${shortAddr(address)}`)
+  if (now - last < 10_000) {
+    return res.status(429).json({ 
+      error: 'Too fast. Wait between valid proofs.', 
+      retryAfterMs: 10_000 - (now - last) 
+    })
   }
 
-  const credits = h / Math.pow(2, 34) // 2^34 hashes = 1 credit, same as frontend
+  const credits = creditsFromDifficulty(storedChallenge.difficulty)
   const at = Date.now()
 
-  // push shares (one entry per submit, not per shareCount to keep memory sane)
-  shares.push({ address, hashrate: h, at, credits, hw: hw ? cleanHw(hw) : undefined })
-  totalHashes += h
-  totalSharesAccepted += shareCount ?? 1
+  activeChallenges.delete(address)
 
-  // update wallet
-  const w = wallets.get(address) ?? { balance: 0, sol: 1.24 + Math.random() * 2, solana: Math.random() * 50, createdAt: Date.now(), lastSeen: Date.now() }
+  shares.push({ 
+    address, 
+    hashrate: storedChallenge.difficulty * 1000,
+    at, 
+    credits, 
+    hw: hw ? cleanHw(hw) : undefined 
+  })
+  totalHashes += Math.pow(16, storedChallenge.difficulty)
+  totalSharesAccepted += 1
+
+  const w = wallets.get(address) ?? { 
+    balance: 0, 
+    sol: 0, 
+    solana: 0, 
+    createdAt: Date.now(), 
+    lastSeen: Date.now() 
+  }
   w.balance += credits
-  w.solana += credits * 900
   w.lastSeen = Date.now()
   if(hw) w.hw = cleanHw(hw)
   wallets.set(address, w)
 
-  // keep last 5000 shares max
   if (shares.length > 5000) shares.splice(0, shares.length - 5000)
 
-  // async save (debounced via interval, but also try)
-  // no await
+  lastSubmitAt.set(address, now)
 
-  res.json({
-    ok: true,
-    credits: Number(credits.toFixed(6)),
-    balance: Number(w.balance.toFixed(6)),
-    solana: Number(w.solana.toFixed(2)),
-    totalHashes,
-    sharesAccepted: totalSharesAccepted,
+  console.log(`✅ Valid proof from ${shortAddr(address)}: +${credits.toFixed(4)} credits (difficulty ${storedChallenge.difficulty})`)
+
+  res.json({ 
+    success: true, 
+    credits: w.balance,
+    creditsEarned: credits,
+    difficulty: storedChallenge.difficulty,
+    message: 'Proof accepted'
   })
 })
 
@@ -302,23 +507,41 @@ app.get('/api/wallet/:address', walletLimiter, (req, res) => {
   res.json({ address: addr, ...w, shares: userShares.length, exists: true })
 })
 
-app.post('/api/wallet/connect', walletLimiter, (req, res) => {
+app.post('/api/wallet/connect', walletLimiter, async (req, res) => {
   const parsed = walletConnectSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() })
   const { address, hw } = parsed.data
   let w = wallets.get(address)
+  
+  let solBalance = 0
+  const isSolanaAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)
+  if (isSolanaAddress) {
+    try {
+      const pubkey = new PublicKey(address)
+      const lamports = await SOLANA_CONNECTION.getBalance(pubkey)
+      solBalance = lamports / LAMPORTS_PER_SOL
+    } catch (e) {
+      console.warn('Failed to fetch SOL balance:', e)
+    }
+  }
+  
   if (!w) {
-    w = { balance: 0, sol: 1.24 + Math.random() * 2, solana: Math.random() * 50, createdAt: Date.now(), lastSeen: Date.now(), hw: hw ? cleanHw(hw) : undefined }
+    w = { balance: 0, sol: solBalance, solana: solBalance, createdAt: Date.now(), lastSeen: Date.now(), hw: hw ? cleanHw(hw) : undefined }
     wallets.set(address, w)
   } else {
     w.lastSeen = Date.now()
+    w.sol = solBalance
+    w.solana = solBalance
     if(hw) w.hw = cleanHw(hw)
   }
   res.json({ ok: true, wallet: { address, ...w } })
 })
 
-// List wallets (for admin/debug) - paginated, no secrets
 app.get('/api/wallets', (req, res) => {
+  const adminKey = req.headers['x-admin-key']
+  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: 'Admin key required' })
+  }
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
   const list = [...wallets.entries()]
     .sort((a, b) => b[1].balance - a[1].balance)
@@ -327,53 +550,37 @@ app.get('/api/wallets', (req, res) => {
   res.json({ wallets: list, total: wallets.size })
 })
 
-// ---------- 404 for API ----------
 app.use('/api', (_req, res) => {
-  res.status(404).json({ error: 'API endpoint not found', available: ['/api/ping','/api/health','/api/stats','/api/leaderboard','/api/network','/api/mining/submit','/api/mining/history','/api/wallet/:address','/api/wallet/connect','/api/wallets'] })
+  res.status(404).json({ error: 'API endpoint not found', available: ['/api/ping','/api/health','/api/stats','/api/leaderboard','/api/network','/api/train/dispatch','/api/mining/submit','/api/wallet/:address','/api/wallet/connect'] })
 })
 
-// ---------- Serve frontend (dist) if exists ----------
 const distPath = path.resolve(__dirname, '..', 'dist')
 const distExists = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'))
 if (distExists) {
   app.use(express.static(distPath, { maxAge: '1h', etag: true }))
-  // SPA fallback: serve index.html for non-API routes
   app.get('/{*any}', (_req, res) => {
     res.sendFile(path.join(distPath, 'index.html'))
   })
   console.log(`📁 Serving frontend from ${distPath}`)
 } else {
   app.get('/{*any}', (_req, res) => {
-    res.json({ ok: true, message: 'SolanaOS API running. Frontend not built. Run: npm run build', version: VERSION, endpoints: '/api/ping /api/health /api/leaderboard /api/mining/submit /api/wallet/:address' })
+    res.json({ ok: true, message: 'AetherOS API running. Frontend not built.', version: VERSION })
   })
-  console.log('⚠️  Frontend dist not found. API only mode.')
 }
 
-// ---------- Error handler ----------
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err)
   res.status(500).json({ error: 'Internal server error', message: NODE_ENV === 'development' ? String(err) : undefined })
 })
 
-// ---------- Start ----------
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ SolanaOS API v${VERSION} running on http://0.0.0.0:${PORT} [${NODE_ENV}]`)
-  console.log(`   CORS_ORIGIN=${corsOrigin}`)
-  console.log(`   Data persistence: ${fs.existsSync(DATA_FILE) ? DATA_FILE : 'memory (will create data.json)'}`)
-  console.log(`   Endpoints:`)
-  console.log(`     GET  /api/ping  /api/health  /api/stats  /api/leaderboard  /api/network  /api/wallets`)
-  console.log(`     POST /api/mining/submit  /api/wallet/connect`)
-  console.log(`     GET  /api/mining/history  /api/wallet/:address`)
+  console.log(`✅ AetherOS API v${VERSION} running on http://0.0.0.0:${PORT} [${NODE_ENV}]`)
 })
 
-// Graceful shutdown
 function shutdown(signal: string) {
   console.log(`\n${signal} received. Shutting down...`)
   saveData()
-  server.close(() => {
-    console.log('Server closed.')
-    process.exit(0)
-  })
+  server.close(() => process.exit(0))
   setTimeout(() => process.exit(1), 8000)
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'))

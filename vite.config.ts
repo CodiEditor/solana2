@@ -5,7 +5,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     proxy: {
       '/api': {
-        target: 'https://solana2-production.up.railway.app',
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
     },

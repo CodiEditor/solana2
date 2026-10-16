@@ -1,5 +1,6 @@
 import './style.css'
-import { miner, wallet, startMining, stopMining, setIntensity, onMinerTick, onBalanceChange, setWallet, disconnectWallet, setNetwork, rpcFor, walletBalanceString, solanaString, connectPhantom, connectMetaMask, hasPhantom, hasMetaMask, providerLabel } from './store'
+import { apiFetch } from './api'
+import { miner, wallet, startMining, stopMining, setIntensity, onMinerTick, onBalanceChange, setWallet, disconnectWallet, setNetwork, rpcFor, walletBalanceString, solanaString, connectPhantom, hasPhantom, providerLabel } from './store'
 import { datasets, models, jobs, addDataset, addModel, addJob, updateJob, findDatasetByName, onPipelineChange, removeModel } from './pipeline'
 import type { AppId, Wallpaper, Network, WindowInfo } from './types'
 
@@ -61,8 +62,8 @@ function shellHTML(){
     'taskmgr':'live hashrates',
     'network':'training nodes',
     'leaderboard':'top miners',
-    'wallet':'address, credits, $SOLANA',
-    'readme':'how SolanaOS works',
+    'wallet':'address, credits, credits',
+    'readme':'how AetherOS works',
     'trash':'deleted things',
     'settings':'wallpaper and options'
   }
@@ -75,12 +76,12 @@ function shellHTML(){
       </div>`).join('')}
   </div>
   <div class="desktop-branding">
-    <div class="pixel-logo-text">SolanaOS</div>
-    <div class="pixel-tagline">MINE WITH YOUR GPU<br/>EARN $SOLANA ON SOLANA</div>
+    <div class="pixel-logo-text">AetherOS</div>
+    <div class="pixel-tagline">MINE CREDITS WITH GPU<br/>TRAIN AI ON SOLANA</div>
     <div class="brand-stats">
       <div class="brand-pill"><span class="dot"></span> <b id="brand-hash">0 H/s</b> hashrate</div>
       <div class="brand-pill">◎ <b id="brand-sol">${walletBalanceString()}</b></div>
-      <div class="brand-pill">$SOLANA <b id="brand-solana">${solanaString()}</b></div>
+      <div class="brand-pill">credits <b id="brand-solana">${solanaString()}</b></div>
     </div>
   </div>
   <div id="windows-container"></div>
@@ -92,17 +93,17 @@ function shellHTML(){
     <div class="taskbar-tray">
       <div class="tray-item tray-balance" data-open="wallet"><span class="sol-icon">◎</span> <span id="tray-sol">${walletBalanceString()}</span></div>
       <div class="tray-item" data-open="wallet"><span id="tray-wallet-text">${wallet.address ? wallet.address.slice(0,4)+'…'+wallet.address.slice(-4) : 'no wallet'}</span></div>
-      <div class="tray-item" data-open="wallet"><span>$SOLANA</span> <span id="tray-solana">${solanaString()}</span></div>
+      <div class="tray-item" data-open="wallet"><span>credits</span> <span id="tray-solana">${solanaString()}</span></div>
       <div class="tray-item tray-network"><span class="net-dot"></span><span id="tray-net">${wallet.network}</span></div>
       <div class="tray-time" id="tray-time">00:00</div>
     </div>
   </div>
   <div id="start-menu" class="start-menu hidden">
-    <div class="start-menu-header"><div class="start-logo">◎ SolanaOS</div><div class="start-version">v1.0.0 • TS</div></div>
+    <div class="start-menu-header"><div class="start-logo">◎ AetherOS</div><div class="start-version">v1.0.0 • TS</div></div>
     <div class="start-menu-items">
       ${Object.entries(APPS).map(([id,v])=>`<div class="start-item" data-open="${id}">${v.icon} ${v.title} <small>${BLURB[id]??''}</small></div>`).join('')}
       <div class="start-sep"></div>
-      <a class="start-item" href="https://robinhoodchain.blockscout.com/token/0x95F804A36202E4F7E058dF393a9cB42A15F8FB23" target="_blank" style="text-decoration:none;color:inherit"><span>◈</span> $SOLANA on Blockscout <small>view token 0x95F8…FB23</small></a>
+      <a class="start-item" href="https://robinhoodchain.blockscout.com/token/0x95F804A36202E4F7E058dF393a9cB42A15F8FB23" target="_blank" style="text-decoration:none;color:inherit"><span>◈</span> credits on Blockscout <small>view token 0x95F8…FB23</small></a>
       <div class="start-item" id="start-shutdown"><span>⏻</span> shut down <small>stop mining, close everything</small></div>
     </div>
   </div>
@@ -113,7 +114,7 @@ function shellHTML(){
       <div class="shutdown-title">It is now safe to close this tab.</div>
       <div class="shutdown-sub">Mining stopped • all windows closed</div>
       <button class="btn-pixel btn-green" id="btn-reboot">↻ TURN BACK ON — click to reboot</button>
-      <div class="shutdown-hint">SolanaOS • cherryOS inspired • click anywhere to reboot</div>
+      <div class="shutdown-hint">AetherOS • cherryOS inspired • click anywhere to reboot</div>
     </div>
   </div>
   <div id="toasts" style="position:fixed;right:12px;bottom:66px;z-index:90;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
@@ -226,13 +227,13 @@ function doShutdown(){
   syncMaximizedClass()
   const ov=document.getElementById('shutdown-overlay')
   if(ov){ ov.classList.remove('hidden'); ov.classList.add('show') }
-  toast('SolanaOS shut down — click to reboot','info')
+  toast('AetherOS shut down — click to reboot','info')
   haptic(30)
 }
 function doReboot(){
   const ov=document.getElementById('shutdown-overlay')
   if(ov){ ov.classList.add('hidden'); ov.classList.remove('show') }
-  toast('SolanaOS rebooted','success')
+  toast('AetherOS rebooted','success')
   haptic(20)
   // reopen like cherryOS first visit
   setTimeout(()=>{ openApp('readme'); setTimeout(()=> openApp('miner'), 180) }, 120)
@@ -444,7 +445,7 @@ function appBody(id:AppId): string {
     <div class="cherry-app">
       <div class="cherry-tabs">
         <button class="ck-tab ${walletTab==='connect'?'on':''}" data-wtab="connect">CONNECT</button>
-        <button class="ck-tab ${walletTab==='solana'?'on':''}" data-wtab="solana">$SOLANA</button>
+        <button class="ck-tab ${walletTab==='solana'?'on':''}" data-wtab="solana">credits</button>
       </div>
       ${walletTab==='connect'?`
       <div class="ck-card" style="text-align:center">
@@ -453,18 +454,16 @@ function appBody(id:AppId): string {
         <div class="ck-desc">Phantom & MetaMask auto-detected</div>
         <div class="ck-status">${wallet.address ? `<b>${providerLabel()}</b> • <span class="ck-mono">${wallet.address.slice(0,6)}…${wallet.address.slice(-6)}</span>` : `<span class="ck-muted">not connected</span>`}</div>
         <div class="ck-row" style="justify-content:center">
-          <button class="ck-btn ck-btn--go" id="btn-phantom">👻 Phantom</button>
-          <button class="ck-btn" style="background:#f5841f;color:#fff;border-color:#000" id="btn-metamask">🦊 MetaMask</button>
-          <button class="ck-btn ck-btn--ghost" id="btn-solflare">Solflare</button>
+          <button class="ck-btn ck-btn--go" id="btn-phantom">🔗 Connect Wallet</button>
         </div>
-        <div class="ck-hint" id="wallet-detect">${hasPhantom()?'✅ Phantom':'⚠️ Phantom not found'} • ${hasMetaMask()?'✅ MetaMask':'⚠️ MetaMask not found'} — <a href="https://phantom.app" target="_blank">install</a> / <a href="https://metamask.io/download" target="_blank">install</a></div>
+        <div class="ck-hint" id="wallet-detect">Wallet standard auto-detected</div>
         <div class="ck-row" style="margin-top:10px">
           <input class="ck-input" id="manual-addr" placeholder="paste address..." value="${wallet.address??''}" style="flex:1"/>
           <button class="ck-btn ck-btn--ghost" id="btn-set-manual">SET</button>
         </div>
         ${wallet.address?`<div class="ck-grid2" style="margin-top:10px;text-align:left">
           <div class="ck-mini"><span>SOL</span><b>${wallet.sol.toFixed(3)}</b></div>
-          <div class="ck-mini"><span>$SOLANA</span><b class="t-sol">${wallet.solana.toFixed(2)}</b></div>
+          <div class="ck-mini"><span>credits</span><b class="t-sol">${wallet.solana.toFixed(2)}</b></div>
           <div class="ck-mini"><span>network</span><b>${wallet.network}</b></div>
           <div class="ck-mini"><span>chain</span><b>${wallet.chain??'—'}</b></div>
         </div><button class="ck-btn ck-btn--stop" id="btn-disconnect" style="margin-top:10px">DISCONNECT</button>`:''}
@@ -472,15 +471,15 @@ function appBody(id:AppId): string {
       ${walletTab==='solana'?`
       <div class="ck-card ck-dark">
         <div class="ck-kicker" style="color:var(--mint)"><span class="ck-dot"></span> LIVE ON ROBINHOOD CHAIN</div>
-        <div class="ck-title" style="color:#fff">Buy <span style="color:var(--pink)">$SOLANA</span></div>
-        <div class="ck-desc" style="color:var(--termDim)">Mine → credits. Hold $SOLANA to use network training & chat.</div>
+        <div class="ck-title" style="color:#fff">Buy <span style="color:var(--pink)">credits</span></div>
+        <div class="ck-desc" style="color:var(--termDim)">Mine → credits. Hold credits to use network training & chat.</div>
         <div class="ck-row" style="margin-top:8px">
           <span class="ck-pill"><span>CA</span><span class="ck-mono" style="font-size:10px">0x95F804…FB23</span></span>
           <button class="ck-btn ck-btn--sm" id="btn-copy-ca">Copy</button>
           <button class="ck-btn ck-btn--ghost ck-btn--sm" id="btn-view-ca">Explorer</button>
         </div>
         <div class="ck-grid2" style="margin-top:10px">
-          <div class="ck-mini ck-mini--light"><span>YOUR $SOLANA</span><b class="t-sol">${wallet.solana.toFixed(2)}</b></div>
+          <div class="ck-mini ck-mini--light"><span>YOUR credits</span><b class="t-sol">${wallet.solana.toFixed(2)}</b></div>
           <div class="ck-mini ck-mini--light"><span>MINED</span><b>${miner.balance.toFixed(4)} cr</b></div>
         </div>
       </div>
@@ -501,7 +500,7 @@ function appBody(id:AppId): string {
           <b>YOUR GPU</b><span>this tab — WebGPU • FREE</span>
         </button>
         <button class="ck-mode ${trainTab==='network'?'on':''}" data-ttab="network">
-          <b>LoRA</b><span>network nodes • CREDITS + $SOLANA</span>
+          <b>LoRA</b><span>network nodes • CREDITS + credits</span>
         </button>
       </div>
       ${trainTab==='local'?`
@@ -515,7 +514,7 @@ function appBody(id:AppId): string {
       <div class="ck-card">
         <div class="ck-row"><label class="ck-field" style="flex:1"><span>DATASET</span><select class="ck-select" id="train-ds-net">${dsOptions||'<option>—</option>'}</select></label><button class="ck-btn ck-btn--ghost ck-btn--sm" id="btn-open-ds">⊕</button></div>
         <div class="ck-row"><label class="ck-field" style="flex:1"><span>BASE → LoRA</span><select class="ck-select" id="train-base-net"><option>GPT-2 → LoRA</option><option>LLaMA-7B → LoRA</option></select></label></div>
-        <div class="ck-gate ${wallet.solana>0?'ok':'warn'}" style="margin-top:6px">${wallet.solana>0?`✓ $SOLANA ${wallet.solana.toFixed(2)}`:`⚠️ need $SOLANA`}</div>
+        <div class="ck-gate ${wallet.solana>0?'ok':'warn'}" style="margin-top:6px">${wallet.solana>0?`✓ credits ${wallet.solana.toFixed(2)}`:`⚠️ need credits`}</div>
         <div class="ck-row" style="margin-top:8px"><span class="ck-hint">${miner.balance.toFixed(2)} cr • est. ${(selDs? (selDs.rows/400*0.6).toFixed(1):'3.0')} cr</span><button class="ck-btn ck-btn--go" style="margin-left:auto" id="btn-dispatch" ${wallet.solana>0?'':'disabled'}>🚀 DISPATCH</button></div>
         ${activeJobs.length? `<div class="ck-list" style="margin-top:10px">${activeJobs.map(j=>`<div class="ck-item"><span style="flex:1"><b>${j.datasetName}</b><span class="ck-muted">${j.node}</span></span><span class="ck-bar"><i style="width:${j.progress}%"></i></span><b>${j.progress}%</b></div>`).join('')}</div>`: '<div class="ck-empty">No jobs — dispatch to network.exe</div>'}
       </div>`}
@@ -600,24 +599,19 @@ function appBody(id:AppId): string {
   }
   if(id==='leaderboard') return `
     <div class="app-content">
-      <div class="lb-tabs"><button class="lb-tab active">24H</button><button class="lb-tab">ALL TIME</button></div>
-      <div class="lb-table">
+      <div class="lb-tabs"><button class="lb-tab active" data-tab="24h">24H</button><button class="lb-tab" data-tab="all">ALL TIME</button></div>
+      <div class="lb-table" id="lb-table">
         <div class="lb-header"><span>#</span><span>WALLET</span><span>HARDWARE</span><span>HASHES</span><span>CREDITS</span></div>
-        ${[
-          ['🥇','5KJG…7xNw','RTX 4090','1.2M','142.4'],
-          ['🥈','9aXP…mR3q','RTX 3090','890K','98.1'],
-          ['🥉','DK2R…pQ9s','RX 6900XT','621K','67.3'],
-        ].map(r=>`<div class="lb-row"><span>${r[0]}</span><span class="lb-addr">${r[1]}</span><span>${r[2]}</span><span>${r[3]}</span><span class="t-sol">${r[4]} cr</span></div>`).join('')}
-        ${wallet.address? `<div class="lb-row" style="background:rgba(153,69,255,.12)"><span>•</span><span class="lb-addr">${wallet.address.slice(0,6)}…</span><span>Your Rig</span><span>${miner.shares}</span><span class="t-sol">${miner.balance.toFixed(2)} cr</span></div>`:''}
+        <div class="lb-loading">Loading leaderboard...</div>
       </div>
     </div>`
   if(id==='readme') return `
     <div class="app-content" style="padding:0">
       <div class="readme-toolbar">
-        <span class="readme-path">C:\\SolanaOS\\readme.txt</span>
+        <span class="readme-path">C:\\AetherOS\\readme.txt</span>
         <button class="btn-pixel btn-sm" id="btn-copy-readme">⧉ Copy</button>
       </div>
-      <pre class="readme-pre">SolanaOS
+      <pre class="readme-pre">AetherOS
 ========
 
 A browser-based operating system that mines with your GPU
@@ -642,7 +636,7 @@ HOW IT WORKS
                       dataset → powerful machines
                       → thin LoRA layer → returned
                   → credits are charged per GPU minute.
-                  → wajib hold $SOLANA (cek di wallet.exe → $SOLANA TOKEN).
+                  → wajib hold credits (cek di wallet.exe → credits TOKEN).
                   → without it, network training is rejected.
 
 4. CHAT          big model + your layer
@@ -659,20 +653,20 @@ sysinfo       machine specs & benchmark
 taskmgr       hashrate live
 network       GPU network nodes
 leaderboard   top miners
-wallet        address, credits, $SOLANA (required for network)
+wallet        address, credits, credits (required for network)
 readme.txt    this file
 recycle bin   trash
 settings      wallpaper & options
 
-$SOLANA
+credits
 
-Live on Robinhood Chain — via SolanaOS.
+Live on Robinhood Chain — via AetherOS.
 0x95F804A36202E4F7E058dF393a9cB42A15F8FB23
 PonsFamily Launchpad: 0x0a98d11e3ba97b01100a55e4078a9782185467a4
 
 NOTES
 
-Network training & network chat are for $SOLANA holders only.
+Network training & network chat are for credits holders only.
 Mining remains open to everyone.
 Without the token you can only mine + train locally.
 
@@ -688,22 +682,22 @@ Local datasets & models stay in this browser.</pre>
       <div class="trash-empty">
         <div class="trash-icon">🗑️</div>
         <div class="trash-title">Recycle Bin is empty</div>
-        <div class="trash-desc">Deleted datasets & models will appear here.<br/>Nothing to restore — just like cherryOS.</div>
+        <div class="trash-desc">Deleted datasets and models will appear here.<br/>Nothing to restore.</div>
       </div>
-      <div class="token-mint-row" style="margin-top:8px"><span class="t-label">Tip</span><span class="t-val" style="font-size:11px">Drag files to trash to delete (coming soon)</span></div>
+      <div class="token-mint-row" style="margin-top:8px"><span class="t-label">Tip</span><span class="t-val" style="font-size:11px">Drag files to delete</span></div>
     </div>`
   return `
     <div class="app-content">
       <div class="settings-sections">
-        <div class="settings-section"><div class="ss-title">WALLPAPER — pick a theme, live preview</div><div class="wallpaper-options">
+        <div class="settings-section"><div class="ss-title">WALLPAPER (Pick a theme)</div><div class="wallpaper-options">
           ${(['aurora','dusk','night','neon'] as Wallpaper[]).map(w=>`<div class="wp-opt ${wallpaper===w?'active':''}" data-wp="${w}"><div class="wp-swatch"></div><div class="wp-label">${w}${wallpaper===w?' ✓':''}</div></div>`).join('')}
-        </div><div class="setting-row" style="margin-top:6px"><span class="sr-label">Active: <b style="color:var(--ink)">${wallpaper}</b></span><span class="t-mono" style="font-size:10px;color:var(--inkSoft)">click a thumbnail → background changes instantly</span></div>
+        </div><div class="setting-row" style="margin-top:6px"><span class="sr-label">Active: <b style="color:var(--ink)">${wallpaper}</b></span><span class="t-mono" style="font-size:10px;color:var(--inkSoft)">click a thumbnail to change background</span></div>
         </div>
         <div class="settings-section"><div class="ss-title">SOLANA NETWORK</div>
-          <div class="setting-row"><span class="sr-label">Network</span><select class="pixel-select" id="setting-net"><option value="devnet" ${wallet.network==='devnet'?'selected':''}>Devnet</option><option value="mainnet-beta" ${wallet.network==='mainnet-beta'?'selected':''}>Mainnet</option><option value="testnet" ${wallet.network==='testnet'?'selected':''}>Testnet</option></select></div>
+          <div class="setting-row"><span class="sr-label">Network</span><select class="pixel-select" id="setting-net"><option value="devnet" ${wallet.network==='devnet'?'selected':''}>Devnet</option><option value="mainnet-beta" ${wallet.network==='mainnet-beta'?'selected':''}>Mainnet</option></select></div>
           <div class="setting-row"><span class="sr-label">RPC</span><span class="t-mono" style="font-size:11px">${rpcFor(wallet.network)}</span></div>
         </div>
-        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◎ SolanaOS</div><div class="about-ver">v1.0.0 • TypeScript + Vite</div><div class="about-desc">Browser OS for mining, AI training, earning $SOLANA — fully typed.</div><div class="about-links"><a class="about-link" href="#">GitHub</a><a class="about-link" href="#">Docs</a></div></div></div>
+        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◎ AetherOS</div><div class="about-ver">v1.0.0 • TypeScript + Vite</div><div class="about-desc">Browser OS for mining, AI training, earning credits — fully typed.</div><div class="about-links"><a class="about-link" href="#">GitHub</a><a class="about-link" href="#">Docs</a></div></div></div>
       </div>
     </div>`
 }
@@ -716,6 +710,27 @@ let chatMessages:{role:'user'|'bot', text:string}[]=[]
 let pendingDatasetName:string = datasets[0]?.name ?? ''
 let selectedDsId:string = datasets[0]?.id ?? ''
 let activeJobTimer:any=null
+
+async function loadLeaderboard(range: '24h' | 'all') {
+  const table = document.getElementById('lb-table')
+  if (!table) return
+  try {
+    const res = await apiFetch(`/leaderboard?sort=credits`) // Using /api/ prefix handled in apiFetch
+    const data = await res.json()
+    const rows = data.leaderboard.map((r: any, i: number) => `
+      <div class="lb-row">
+        <span>${i + 1}</span>
+        <span class="lb-addr">${r.address}</span>
+        <span>${r.hw || 'Browser'}</span>
+        <span>${r.hashes.toLocaleString()}</span>
+        <span class="t-sol">${r.credits.toFixed(2)} cr</span>
+      </div>
+    `).join('')
+    table.innerHTML = `<div class="lb-header"><span>#</span><span>WALLET</span><span>HARDWARE</span><span>HASHES</span><span>CREDITS</span></div>` + rows
+  } catch (e) {
+    table.innerHTML = `<div class="lb-loading" style="color:red">Failed to load leaderboard</div>`
+  }
+}
 
 function bindAppEvents(){
   $('#btn-mining')?.addEventListener('click',()=>{
@@ -745,13 +760,6 @@ function bindAppEvents(){
       const addr = await connectPhantom()
       toast('Phantom connected: '+addr.slice(0,6)+'...'+addr.slice(-4),'success'); renderWindows()
     }catch(e:any){ toast(e?.message ?? 'Phantom connect failed','error') }
-  })
-  $('#btn-metamask')?.addEventListener('click', async()=>{
-    try{
-      if(!hasMetaMask()){ toast('MetaMask not installed — open metamask.io','error'); window.open('https://metamask.io/download/','_blank'); return }
-      const addr = await connectMetaMask()
-      toast('MetaMask connected: '+addr.slice(0,6)+'...'+addr.slice(-4),'success'); renderWindows()
-    }catch(e:any){ toast(e?.message ?? 'MetaMask connect failed','error') }
   })
   $('#btn-solflare')?.addEventListener('click',()=>{ const a='Solflare'+Math.random().toString(36).slice(2,8)+'2222222222222222222222'; setWallet(a,'solflare','solana'); toast('Solflare (mock) connected','success'); renderWindows() })
   $('#btn-set-manual')?.addEventListener('click',()=>{
@@ -789,27 +797,39 @@ function bindAppEvents(){
       if(p>=100){ clearInterval(iv); const mid='mdl-'+Date.now(); addModel({id:mid,name: ds.name.replace(/\.\w+$/,'')+`-lora-${Date.now().toString(36).slice(-4)}`,base,datasetId:ds.id,datasetName:ds.name,epochs,createdAt:Date.now(),source:'local',cost:0}); log.innerHTML+=`<div class="log-line" style="color:#14F195">> done — LoRA saved → models.exe</div>`; toast('Local training done → models.exe','success'); renderWindows(); setTimeout(()=>{ openApp('models'); chatOpen=true; chatModel=mid; chatMessages=[{role:'bot',text:'Hi! I am '+mid+' trained on '+ds.name}]; renderWindows()},400)}
     },450)
   })
-  $('#btn-dispatch')?.addEventListener('click',()=>{
-    if(wallet.solana<=0){ toast('Must hold $SOLANA — buy in wallet → $SOLANA TOKEN','error'); openApp('wallet'); walletTab='solana'; renderWindows(); return }
-    if(miner.balance<0.3){ toast('Not enough credits — mine first (need ~0.3 cr)','error'); openApp('miner'); return }
+  $('#btn-dispatch')?.addEventListener('click', async()=>{
+    if(wallet.solana<=0){ toast('Must hold credits — buy in wallet → credits TOKEN','error'); openApp('wallet'); walletTab='solana'; renderWindows(); return }
+    if(miner.balance<5){ toast('Not enough credits — need at least 5 cr for network training','error'); openApp('miner'); return }
     const dsId=(document.getElementById('train-ds-net') as HTMLSelectElement)?.value ?? datasets.find(d=>d.name===pendingDatasetName)?.id ?? datasets[0]?.id
     const ds=datasets.find(d=>d.id===dsId)!
     const base=(document.getElementById('train-base-net') as HTMLSelectElement)?.value ?? 'GPT-2 (124M)'
-    const cost = Math.round(ds.rows/500*100)/100 + 0.6
-    // deduct credits mock
-    const bal = Number(localStorage.getItem('solanaos:miner-balance')?? '0')
-    // create job
-    const jid='job-'+Date.now()
-    addJob({id:jid,datasetId:ds.id,datasetName:ds.name,base,epochs:3,status:'training',progress:0,node:'GPU Node #001',cost})
-    toast(`Dispatched ${ds.name} → network.exe (${base})`,'success')
-    openApp('network'); networkTab='queue'; renderWindows()
-    // animate progress
-    let tick=0; const t=setInterval(()=>{
-      tick+= 8+Math.random()*12; const pr=Math.min(100,Math.round(tick))
-      updateJob(jid,{progress:pr})
-      if(pr>=100){ clearInterval(t); updateJob(jid,{status:'done',progress:100}); const mid='mdl-'+Date.now(); addModel({id:mid,name: ds.name.replace(/\.\w+$/,'')+`-lora-${Date.now().toString(36).slice(-4)}`,base,datasetId:ds.id,datasetName:ds.name,epochs:3,createdAt:Date.now(),source:'network',cost}); toast('Network job done — LoRA in models.exe','success'); renderWindows(); setTimeout(()=>{ openApp('models'); chatOpen=true; chatModel=mid; renderWindows()},500) }
-      renderWindows()
-    },700)
+    
+    toast(`Dispatching ${ds.name} to Modal GPU...`,'info')
+    try {
+      const token = localStorage.getItem('aetheros:token')
+      const res = await fetch('/api/train/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ datasetName: ds.name, datasetContent: ds.content, baseModel: base })
+      })
+      const data = await res.json()
+      if(!res.ok) throw new Error(data.error || 'Dispatch failed')
+      
+      toast(data.message,'success')
+      const jid='job-'+Date.now()
+      addJob({id:jid,datasetId:ds.id,datasetName:ds.name,base,epochs:3,status:'training',progress:10,node:'Modal GPU T4',cost:5})
+      openApp('network'); networkTab='queue'; renderWindows()
+
+      // animate progress
+      let tick=10; const t=setInterval(()=>{
+        tick+= 12+Math.random()*15; const pr=Math.min(100,Math.round(tick))
+        updateJob(jid,{progress:pr})
+        if(pr>=100){ clearInterval(t); updateJob(jid,{status:'done',progress:100}); const mid='mdl-'+Date.now(); addModel({id:mid,name: ds.name.replace(/\.\w+$/,'')+`-lora-${Date.now().toString(36).slice(-4)}`,base,datasetId:ds.id,datasetName:ds.name,epochs:3,createdAt:Date.now(),source:'network',cost:5}); toast('Modal GPU training done — LoRA in models.exe','success'); renderWindows(); setTimeout(()=>{ openApp('models'); chatOpen=true; chatModel=mid; renderWindows()},500) }
+        renderWindows()
+      },800)
+    } catch(e:any) {
+      toast(e?.message || 'Training dispatch failed','error')
+    }
   })
   $('#btn-import')?.addEventListener('click',()=> $('#ds-file')?.click())
   $('#ds-file')?.addEventListener('change',(e)=>{
@@ -836,6 +856,18 @@ function bindAppEvents(){
   $('#btn-open-train-from-net')?.addEventListener('click',()=>{ openApp('train'); renderWindows()})
   $('#btn-open-models-from-net')?.addEventListener('click',()=>{ openApp('models'); renderWindows()})
   $('#btn-refresh-net')?.addEventListener('click',()=>{ toast('Network refreshed','info'); renderWindows()})
+  // leaderboard tabs
+  document.querySelectorAll('[data-tab]').forEach(b => {
+    b.addEventListener('click', () => {
+      const tab = (b as HTMLElement).dataset.tab
+      document.querySelectorAll('[data-tab]').forEach(x => x.classList.remove('active'))
+      b.classList.add('active')
+      loadLeaderboard(tab === '24h' ? '24h' : 'all')
+    })
+  })
+  // initial load if leaderboard window is open
+  const lbTable = document.getElementById('lb-table')
+  if (lbTable) loadLeaderboard('24h')
   $('#btn-close-chat')?.addEventListener('click',()=>{ chatOpen=false; renderWindows() })
   $('#btn-send-chat')?.addEventListener('click',sendChat)
   $('#chat-input')?.addEventListener('keydown',(e)=>{ if((e as KeyboardEvent).key==='Enter') sendChat() })
@@ -885,8 +917,8 @@ function sendChat(){
   setTimeout(()=>{ const m=$('#chat-messages'); if(m) m.scrollTop=m.scrollHeight },50)
 }
 function mockAnswer(q:string){
-  if(q.toLowerCase().includes('solana')) return 'Solana is high-performance L1 with ~400ms blocks and low fees. SolanaOS lets you mine credits and train models on it.'
-  if(q.toLowerCase().includes('mining')) return 'Mining here is browser-based PoW that earns credits → $SOLANA. Use miner.exe!'
+  if(q.toLowerCase().includes('solana')) return 'Solana is high-performance L1 with ~400ms blocks and low fees. AetherOS lets you mine credits and train models on it.'
+  if(q.toLowerCase().includes('mining')) return 'Mining here is browser-based PoW that earns credits → credits. Use miner.exe!'
   return 'Nice question! (TS mock) Ask me about DeFi, NFTs, or validators.'
 }
 function drawMap(){
