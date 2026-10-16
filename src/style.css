@@ -513,3 +513,15 @@ body.has-maximized .desktop-branding{opacity:0}
 
 
 
+
+/* Additions for the narrowed release: keyboard focus, readable icon labels, four-column leaderboard, reduced motion */
+.desktop-icon{cursor:pointer;font:inherit;color:inherit}
+.desktop-icon span{font-size:11px}
+:is(button,a,input,select,[role="button"]):focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.ck-btn img{margin-right:8px;border-radius:4px;vertical-align:middle}
+.lb-table.lb4 .lb-header,.lb-table.lb4 .lb-row{grid-template-columns:40px 1.4fr .8fr 1fr}
+.lb-row.me{background:var(--paper2);font-weight:700}
+.lb-loading{padding:16px 12px;font:12px var(--mono);color:var(--inkSoft)}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}

@@ -1,25 +1,34 @@
-export type AppId = 'miner'|'wallet'|'train'|'datasets'|'models'|'sysinfo'|'taskmgr'|'network'|'leaderboard'|'settings'|'readme'|'trash'
-export type Wallpaper = 'aurora'|'dusk'|'night'|'neon'
-export type Network = 'devnet'|'mainnet-beta'|'testnet'
+export type AppId = 'miner' | 'wallet' | 'leaderboard' | 'settings' | 'readme'
+export type Wallpaper = 'aurora' | 'dusk' | 'night' | 'neon'
 
 export interface MinerState {
   running: boolean
   intensity: number
   hashrate: number
-  shares: number
+  found: number
   accepted: number
+  rejected: number
   session: number
   balance: number
-  difficulty: number
+  creditsPerShare: number | null
 }
 
 export interface WalletState {
   address: string | null
-  sol: number
-  solana: number
-  network: Network
-  provider: 'phantom' | 'metamask' | 'solflare' | 'manual' | null
-  chain: 'solana' | 'evm' | null
+  walletName: string | null
+}
+
+export interface LogLine {
+  at: number
+  text: string
+  kind: 'info' | 'ok' | 'error'
+}
+
+export interface LeaderRow {
+  rank: number
+  address: string
+  shares: number
+  credits: number
 }
 
 export interface WindowInfo {
@@ -35,9 +44,3 @@ export interface WindowInfo {
   minimized: boolean
   maximized: boolean
 }
-
-export interface Toast { id:number; msg:string; kind:'success'|'info'|'error' }
-
-export interface Dataset { id:string; name:string; rows:number; type:string; content:string; preview:string }
-export interface TrainedModel { id:string; name:string; base:string; datasetId:string; datasetName:string; epochs:number; createdAt:number; source:'local'|'network'; cost:number }
-export interface TrainJob { id:string; datasetId:string; datasetName:string; base:string; epochs:number; status:'queued'|'training'|'done'|'failed'; progress:number; node:string; cost:number }
