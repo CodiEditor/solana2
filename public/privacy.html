@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ffb3da" />
+  <title>Privacy · AetherOS</title>
+  <meta name="description" content="What AetherOS stores, what your browser sends, and what stays in your browser." />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    :root { color-scheme: light; --ink:#3b1240; --ink-soft:#6a3a73; --paper:#fff8fc; --paper-2:#fdeef7; --pink:#d63d86; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: var(--ink); font: 400 16px/1.65 'Outfit', system-ui, sans-serif;
+      background: linear-gradient(165deg,#ff8cc6 0%,#ffb3da 24%,#ecc4ff 52%,#b9e0ff 80%,#e2f4ff 100%) fixed; }
+    main { max-width: 44rem; margin: 0 auto; padding: 32px 16px 56px; }
+    .card { background: var(--paper); border: 2px solid var(--ink); border-radius: 14px; padding: 28px 24px; box-shadow: 6px 6px 0 rgba(59,18,64,.22); }
+    .brand { font: 400 12px/1.4 'Press Start 2P', monospace; letter-spacing: .04em; text-decoration: none; color: var(--ink); }
+    h1 { margin: 22px 0 4px; font: 700 2rem/1.15 'Outfit', sans-serif; }
+    .updated { margin: 0 0 24px; font: 400 13px 'JetBrains Mono', monospace; color: var(--ink-soft); }
+    h2 { margin: 28px 0 6px; font-size: 1.15rem; line-height: 1.3; }
+    p { margin: 0 0 12px; max-width: 65ch; }
+    a { color: var(--pink); text-underline-offset: 3px; }
+    a:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+    .links { margin-top: 32px; padding-top: 16px; border-top: 2px solid var(--paper-2); display: flex; flex-wrap: wrap; gap: 8px 20px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="card">
+      <a class="brand" href="./">AetherOS</a>
+      <h1>Privacy</h1>
+      <p class="updated">Updated 17 October 2026</p>
+
+      <h2>What the server stores</h2>
+      <p>Your wallet address, your credit balance, your count of accepted shares, the times your wallet first connected and was last seen, the credits you earned today (for the daily limit), and a short list of recent accepted shares with address, time and credits. Sign-in messages and mining challenges are kept in memory for a short time and then dropped.</p>
+
+      <h2>What the leaderboard shows</h2>
+      <p>The leaderboard is public. It shows a shortened address (the first four and last four characters), shares and credits.</p>
+
+      <h2>What your browser sends</h2>
+      <p>Your wallet address, the signature of the sign-in message, and mining proofs (a nonce, a hash and a challenge). AetherOS does not collect names, emails, locations or hardware details.</p>
+
+      <h2>Request logs</h2>
+      <p>Like most web services, requests are logged with the time, IP address, requested path, response code and browser user agent. The hosting providers, Vercel for the pages and Railway for the API, handle your requests and keep their own logs under their own policies.</p>
+
+      <h2>What stays in your browser</h2>
+      <p>Local storage holds your wallet address, your wallet name, your sign-in token (valid for 24 hours) and your wallpaper choice. AetherOS sets no cookies and uses no analytics, ads or third-party trackers.</p>
+
+      <h2>Fonts</h2>
+      <p>The pages load fonts from Google Fonts, so Google receives your IP address and browser details when a page loads.</p>
+
+      <h2>Your wallet</h2>
+      <p>AetherOS sees your public address and a signature. It never sees your private key or your seed phrase. Your wallet app has its own policies.</p>
+
+      <h2>Keeping and removing data</h2>
+      <p>Balances and shares are kept while the service runs or until they are reset. Pressing DISCONNECT in wallet.exe removes your token and wallet details from this browser. Server records stay, and they hold only the data listed above.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>This policy can change. The date at the top shows the latest version.</p>
+
+      <div class="links">
+        <a href="./terms.html">Terms</a>
+        <a href="./">Back to AetherOS</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

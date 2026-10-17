@@ -531,3 +531,8 @@ body.has-maximized .desktop-branding{opacity:0}
   .lb-table.lb4 .lb-header,.lb-table.lb4 .lb-row{min-width:0;gap:6px;padding:10px;grid-template-columns:28px minmax(0,1.4fr) minmax(0,.7fr) minmax(0,1fr)}
   .lb-table.lb4 .lb-row{font-size:11px}
 }
+
+/* Terms and Privacy links under the brand block, which otherwise ignores the pointer */
+.brand-legal{margin-top:10px;display:flex;gap:8px;justify-content:center;font:500 11px var(--mono);pointer-events:auto}
+.brand-legal a{color:var(--ink);text-underline-offset:3px}
+.about-links{display:flex;gap:12px;justify-content:center;margin-top:8px}

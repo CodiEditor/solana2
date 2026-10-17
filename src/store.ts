@@ -28,6 +28,8 @@ export const miner: MinerState = {
   session: 0,
   balance: 0,
   creditsPerShare: null,
+  dailyEarned: 0,
+  dailyCap: null,
 }
 
 export const minerLog: LogLine[] = []
@@ -114,6 +116,8 @@ function clearSession() {
   wallet.walletName = null
   miner.balance = 0
   miner.session = 0
+  miner.dailyEarned = 0
+  miner.dailyCap = null
   clearAuthToken()
   storage.remove(LS_WALLET)
   storage.remove(LS_WALLET_NAME)
@@ -139,6 +143,9 @@ export async function refreshBalance() {
   try {
     const d = await apiFetch(`/wallet/${encodeURIComponent(wallet.address)}`)
     miner.balance = d.balance ?? 0
+    miner.creditsPerShare = d.creditsPerShare ?? miner.creditsPerShare
+    miner.dailyEarned = d.dailyEarned ?? 0
+    miner.dailyCap = d.dailyCap ?? miner.dailyCap
   } catch { /* balance stays as it was */ }
   balanceCb?.()
 }
@@ -152,6 +159,14 @@ let submitting = false
 let lastAcceptedAt = 0
 let cooldownMs = 10_000
 
+const isDailyLimit = (e: unknown) => e instanceof ApiError && e.status === 429 && !!e.body?.dailyLimit
+
+function dailyLimitReached() {
+  if (miner.dailyCap !== null) miner.dailyEarned = miner.dailyCap
+  stopMining()
+  log('Daily limit reached. Mining resumes at 00:00 UTC.', 'error')
+}
+
 async function requestChallenge(id: number, attempt = 0): Promise<boolean> {
   if (id !== runId || !worker) return false
   try {
@@ -159,11 +174,14 @@ async function requestChallenge(id: number, attempt = 0): Promise<boolean> {
     if (id !== runId || !worker) return false
     miner.creditsPerShare = c.creditsPerShare ?? miner.creditsPerShare
     cooldownMs = c.cooldownMs ?? cooldownMs
+    miner.dailyEarned = c.dailyEarned ?? miner.dailyEarned
+    miner.dailyCap = c.dailyCap ?? miner.dailyCap
     miner.waiting = false
     worker.postMessage({ type: 'start', challenge: c.challenge, difficulty: c.difficulty, target: c.target, intensity: miner.intensity })
     return true
   } catch (e) {
     if (isAuthError(e)) { sessionLost('Your session expired. Connect your wallet again.'); return false }
+    if (isDailyLimit(e)) { dailyLimitReached(); return false }
     const retryable = !(e instanceof ApiError) || [429, 500, 502, 503, 504].includes(e.status)
     if (retryable && attempt < 3) {
       const wait = 1000 * 2 ** attempt
@@ -184,7 +202,7 @@ async function submitProof(msg: { nonce: number; hash: string; challenge: string
         body: JSON.stringify({ address: wallet.address, nonce: msg.nonce, hash: msg.hash, challenge: msg.challenge }),
       })
     } catch (e) {
-      if (e instanceof ApiError && e.status === 429 && attempt === 0) {
+      if (e instanceof ApiError && e.status === 429 && attempt === 0 && !isDailyLimit(e)) {
         const wait = Math.min(Number(e.body?.retryAfterMs) || cooldownMs, 30_000)
         log(`Too fast. Waiting ${Math.ceil(wait / 1000)}s before submitting.`)
         miner.waiting = true
@@ -211,12 +229,15 @@ async function onProof(msg: { nonce: number; hash: string; challenge: string; at
       miner.accepted++
       miner.balance = res.credits
       miner.session += res.creditsEarned
+      miner.dailyEarned = res.dailyEarned ?? miner.dailyEarned
+      miner.dailyCap = res.dailyCap ?? miner.dailyCap
       lastAcceptedAt = Date.now()
       log(`Accepted. +${Number(res.creditsEarned).toFixed(4)} cr`, 'ok')
       balanceCb?.()
     }
   } catch (e) {
     if (isAuthError(e)) { sessionLost('Your session expired. Connect your wallet again.'); return }
+    if (isDailyLimit(e)) { dailyLimitReached(); return }
     miner.rejected++
     log(`Rejected: ${errText(e)}`, 'error')
   } finally {

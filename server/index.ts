@@ -70,23 +70,46 @@ const miningLimiter = limiter(200, 'Mining rate limit exceeded. Slow down.')
 const walletLimiter = limiter(60)
 
 // ---------- Mining rules ----------
-const MINING_DIFFICULTY = 3
-const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000
-const SUBMIT_COOLDOWN_MS = 10_000
+// Each value can be tuned with an environment variable. Out-of-range values fall back to the default.
+const envNumber = (name: string, fallback: number, min: number, max: number) => {
+  const n = Number(process.env[name])
+  return Number.isFinite(n) && process.env[name] !== '' && n >= min && n <= max ? n : fallback
+}
+// Difficulty is the number of leading zero hex digits a hash needs: about 16^5 = 1,048,576 hashes
+// per share at 5, which takes a typical browser tab tens of seconds.
+const MINING_DIFFICULTY = Math.round(envNumber('MINING_DIFFICULTY', 5, 1, 8))
+const CREDITS_PER_SHARE = envNumber('CREDITS_PER_SHARE', 1, 0.0001, 1000)
+const DAILY_CREDIT_CAP = envNumber('DAILY_CREDIT_CAP', 1000, 1, 1_000_000)
+const SUBMIT_COOLDOWN_MS = Math.round(envNumber('SUBMIT_COOLDOWN_MS', 10_000, 0, 600_000))
+const CHALLENGE_EXPIRY_MS = 30 * 60 * 1000
+// Share count for wallets saved before accepted shares were tracked (they earned 0.8 per share).
+const LEGACY_CREDITS_PER_SHARE = 0.8
+
+const round4 = (n: number) => Math.round(n * 10_000) / 10_000
+const dayKeyNow = () => new Date().toISOString().slice(0, 10)
+const nextResetAt = () => {
+  const d = new Date()
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)
+}
 
 function difficultyToTarget(difficulty: number): string {
   return '0'.repeat(difficulty) + 'f'.repeat(64 - difficulty)
 }
 
-function creditsFromDifficulty(difficulty: number): number {
-  return Number((Math.pow(16, difficulty - 2) * 0.05).toFixed(4))
-}
-const CREDITS_PER_SHARE = creditsFromDifficulty(MINING_DIFFICULTY)
-
 // ---------- Persistence (JSON file, survives restarts only if DATA_DIR is a volume) ----------
-const DATA_FILE = path.resolve(process.env.DATA_DIR || __dirname, '..', 'data.json')
+// With DATA_DIR set the file is DATA_DIR/data.json, so mount the volume at that folder.
+const DATA_FILE = process.env.DATA_DIR
+  ? path.join(path.resolve(process.env.DATA_DIR), 'data.json')
+  : path.resolve(__dirname, '..', 'data.json')
 type Share = { address: string; at: number; credits: number }
-type Wallet = { balance: number; accepted?: number; createdAt: number; lastSeen: number }
+type Wallet = {
+  balance: number
+  accepted?: number
+  createdAt: number
+  lastSeen: number
+  dayKey?: string      // UTC date of the last accepted share, e.g. 2026-10-17
+  dayCredits?: number  // credits earned on that date
+}
 
 let shares: Share[] = []
 const wallets = new Map<string, Wallet>()
@@ -101,12 +124,13 @@ function loadData() {
       for (const [addr, w] of data.wallets) wallets.set(addr, w)
     }
     totalSharesAccepted = data.totalSharesAccepted || 0
-    console.log(`Loaded persisted data: ${shares.length} shares, ${wallets.size} wallets`)
+    console.log(`Loaded ${wallets.size} wallets and ${shares.length} shares from ${DATA_FILE}`)
   } catch (e) {
     console.warn('Failed to load data file:', e)
   }
 }
 loadData()
+console.log(`Data file: ${DATA_FILE}`)
 
 function saveData() {
   try {
@@ -125,7 +149,12 @@ function saveData() {
     console.warn('Failed to save data file:', e)
   }
 }
-setInterval(saveData, 60_000)
+// Save shortly after a change instead of on every request. A crash loses at most two seconds.
+let saveTimer: NodeJS.Timeout | undefined
+function scheduleSave() {
+  if (saveTimer) return
+  saveTimer = setTimeout(() => { saveTimer = undefined; saveData() }, 2000)
+}
 
 // ---------- Short-lived state ----------
 interface ActiveChallenge { challenge: string; issuedAt: number; difficulty: number; target: string }
@@ -207,9 +236,26 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
   }
 }
 
-function sharesOf(addr: string, w: Wallet) {
-  return w.accepted ?? Math.round(w.balance / CREDITS_PER_SHARE)
+function sharesOf(_addr: string, w: Wallet) {
+  return w.accepted ?? Math.round(w.balance / LEGACY_CREDITS_PER_SHARE)
 }
+
+const earnedToday = (w?: Wallet) => (w && w.dayKey === dayKeyNow() ? w.dayCredits ?? 0 : 0)
+const atDailyCap = (w?: Wallet) => round4(earnedToday(w) + CREDITS_PER_SHARE) > DAILY_CREDIT_CAP
+const dailyLimitBody = () => ({
+  error: 'Daily limit reached. Mining resumes at 00:00 UTC.',
+  dailyLimit: true,
+  resetAt: nextResetAt(),
+})
+const walletView = (address: string, w?: Wallet) => ({
+  address,
+  balance: w?.balance ?? 0,
+  shares: w ? sharesOf(address, w) : 0,
+  exists: !!w,
+  creditsPerShare: CREDITS_PER_SHARE,
+  dailyEarned: earnedToday(w),
+  dailyCap: DAILY_CREDIT_CAP,
+})
 
 function getLeaderboard() {
   const rows = [...wallets.entries()].map(([addr, w]) => ({
@@ -275,9 +321,7 @@ app.post('/api/auth/verify', authLimiter, (req, res) => {
 app.get('/api/wallet/:address', walletLimiter, (req, res) => {
   const addr = req.params.address as string
   if (!isSolanaAddress(addr)) return res.status(400).json({ error: 'Invalid address format' })
-  const w = wallets.get(addr)
-  if (!w) return res.json({ address: addr, balance: 0, shares: 0, exists: false })
-  res.json({ address: addr, balance: w.balance, shares: sharesOf(addr, w), exists: true })
+  res.json(walletView(addr, wallets.get(addr)))
 })
 
 app.post('/api/wallet/connect', requireAuth, walletLimiter, (req, res) => {
@@ -291,10 +335,11 @@ app.post('/api/wallet/connect', requireAuth, walletLimiter, (req, res) => {
   if (!w) {
     w = { balance: 0, accepted: 0, createdAt: Date.now(), lastSeen: Date.now() }
     wallets.set(address, w)
+    scheduleSave()
   } else {
     w.lastSeen = Date.now()
   }
-  res.json({ ok: true, wallet: { address, balance: w.balance, shares: sharesOf(address, w) } })
+  res.json({ ok: true, wallet: walletView(address, w) })
 })
 
 // ---------- Mining ----------
@@ -304,6 +349,10 @@ app.get('/api/mining/challenge', requireAuth, challengeLimiter, (req, res) => {
   if ((req as any).authAddress !== address) {
     return res.status(403).json({ error: 'Signed in with a different wallet.' })
   }
+
+  // Do not hand out work that could never be paid.
+  const w = wallets.get(address)
+  if (atDailyCap(w)) return res.status(429).json(dailyLimitBody())
 
   const challenge = generateChallenge()
   const issuedAt = Date.now()
@@ -317,6 +366,8 @@ app.get('/api/mining/challenge', requireAuth, challengeLimiter, (req, res) => {
     expiresAt: issuedAt + CHALLENGE_EXPIRY_MS,
     creditsPerShare: CREDITS_PER_SHARE,
     cooldownMs: SUBMIT_COOLDOWN_MS,
+    dailyEarned: earnedToday(w),
+    dailyCap: DAILY_CREDIT_CAP,
   })
 })
 
@@ -328,6 +379,7 @@ app.post('/api/mining/submit', requireAuth, miningLimiter, (req, res) => {
   if ((req as any).authAddress !== address) {
     return res.status(403).json({ error: 'Signed in with a different wallet.' })
   }
+  if (atDailyCap(wallets.get(address))) return res.status(429).json(dailyLimitBody())
 
   const stored = activeChallenges.get(address)
   if (!stored) return res.status(400).json({ error: 'No active challenge. Request a new one.' })
@@ -351,7 +403,7 @@ app.post('/api/mining/submit', requireAuth, miningLimiter, (req, res) => {
     })
   }
 
-  const credits = creditsFromDifficulty(stored.difficulty)
+  const credits = CREDITS_PER_SHARE
   activeChallenges.delete(address)
 
   shares.push({ address, at: now, credits })
@@ -359,13 +411,24 @@ app.post('/api/mining/submit', requireAuth, miningLimiter, (req, res) => {
   totalSharesAccepted += 1
 
   const w = wallets.get(address) ?? { balance: 0, accepted: 0, createdAt: now, lastSeen: now }
+  const today = dayKeyNow()
   w.accepted = sharesOf(address, w) + 1
-  w.balance += credits
+  w.balance = round4(w.balance + credits)
+  w.dayCredits = round4(earnedToday(w) + credits)
+  w.dayKey = today
   w.lastSeen = now
   wallets.set(address, w)
   lastSubmitAt.set(address, now)
+  scheduleSave()
 
-  res.json({ success: true, credits: w.balance, creditsEarned: credits, difficulty: stored.difficulty })
+  res.json({
+    success: true,
+    credits: w.balance,
+    creditsEarned: credits,
+    difficulty: stored.difficulty,
+    dailyEarned: w.dayCredits,
+    dailyCap: DAILY_CREDIT_CAP,
+  })
 })
 
 app.get('/api/wallets', (req, res) => {

@@ -72,6 +72,7 @@ function shellHTML(){
       <div class="brand-pill"><span class="dot"></span> <b id="brand-hash">0 H/s</b> hashrate</div>
       <div class="brand-pill">credits <b id="brand-credits">${miner.balance.toFixed(4)}</b></div>
     </div>
+    <div class="brand-legal"><a href="./terms.html" target="_blank" rel="noopener noreferrer">Terms</a><span aria-hidden="true">·</span><a href="./privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></div>
   </div>
   <div id="windows-container"></div>
   <div class="mobile-scrim" id="mobile-scrim"></div>
@@ -90,6 +91,8 @@ function shellHTML(){
     <div class="start-menu-items">
       ${Object.entries(APPS).map(([id,v])=>`<div class="start-item" data-open="${id}">${v.icon} ${v.title} <small>${BLURB[id]??''}</small></div>`).join('')}
       <div class="start-sep"></div>
+      <a class="start-item" href="./terms.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">📜 terms <small>what credits are and the rules</small></a>
+      <a class="start-item" href="./privacy.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">🔒 privacy <small>what we store and what we do not</small></a>
       <div class="start-item" id="start-shutdown"><span>⏻</span> shut down <small>stop mining, close everything</small></div>
     </div>
   </div>
@@ -403,6 +406,9 @@ const logLineHTML = (l: LogLine) =>
   `<div class="log-line"><span class="log-time">${new Date(l.at).toLocaleTimeString()}</span> &gt; ${l.kind === 'ok' ? '<span style="color:#14F195">' : l.kind === 'error' ? '<span style="color:#ff4d6a">' : '<span>'}${esc(l.text)}</span></div>`
 
 const minerStatus = () => !miner.running ? 'stopped' : miner.waiting ? 'waiting' : 'mining'
+const dailyText = () => miner.dailyCap === null
+  ? 'Each accepted share adds credits to your balance. Credits set your place on the leaderboard.'
+  : `Each accepted share adds ${miner.creditsPerShare ?? 1} cr. Daily limit ${miner.dailyCap} cr per wallet, resetting at 00:00 UTC. Today: ${miner.dailyEarned} of ${miner.dailyCap} cr.`
 
 function minerBody(): string {
   const connected = !!wallet.address
@@ -435,7 +441,7 @@ function minerBody(): string {
         <div class="ck-progress"><div id="m-progress" style="width:${miner.running ? miner.intensity + '%' : '0%'}"></div></div>
         <div class="ck-log" id="miner-log">${lines}</div>
       </div>
-      <div class="ck-desc">Each accepted share adds credits to your balance. Credits set your place on the leaderboard.</div>
+      <div class="ck-desc" id="m-daily">${dailyText()}</div>
     </div>`
 }
 
@@ -515,8 +521,9 @@ HOW IT WORKS
    INTENSITY sets how much of each moment is spent hashing.
 
 3. The server checks every share. Each accepted share adds credits
-   to your balance. The reward per share and the wait between
-   shares are set by the server and shown in miner.exe.
+   to your balance. The reward per share, the daily limit per
+   wallet and the wait between shares are set by the server and
+   shown in miner.exe.
 
 4. leaderboard ranks wallets by credits.
 
@@ -533,6 +540,8 @@ GOOD TO KNOW
 Credits are a score kept by this site. They are not a token and
 cannot be exchanged.
 Mining stops when you close the tab.
+The full rules are on the Terms page and the data we keep is on
+the Privacy page. Both are linked from the start menu.
 
 WHAT THE SERVER STORES
 
@@ -545,7 +554,7 @@ Nothing else about you or your computer is sent.</pre>
         <div class="settings-section"><div class="ss-title">WALLPAPER (Pick a theme)</div><div class="wallpaper-options">
           ${(['aurora', 'dusk', 'night', 'neon'] as Wallpaper[]).map(w => `<div class="wp-opt ${wallpaper === w ? 'active' : ''}" data-wp="${w}" role="button" tabindex="0" aria-label="Wallpaper ${w}"><div class="wp-swatch"></div><div class="wp-label">${w}${wallpaper === w ? ' ✓' : ''}</div></div>`).join('')}
         </div></div>
-        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◆ AetherOS</div><div class="about-ver">v1.0.0</div><div class="about-desc">Mine credits in your browser with a Solana wallet.</div></div></div>
+        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◆ AetherOS</div><div class="about-ver">v1.0.0</div><div class="about-desc">Mine credits in your browser with a Solana wallet.</div><div class="about-links"><a class="about-link" href="./terms.html" target="_blank" rel="noopener noreferrer">Terms</a><a class="about-link" href="./privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></div></div></div>
       </div>
     </div>`
 }
@@ -628,6 +637,7 @@ onMinerTick((m, uptime)=>{
   set('m-session', `+${m.session.toFixed(4)} cr`); set('m-balance', `${m.balance.toFixed(4)} cr`); set('m-uptime', uptime)
   set('m-status', minerStatus())
   set('m-reward', m.creditsPerShare===null ? 'n/a' : `${m.creditsPerShare} cr / share`)
+  set('m-daily', dailyText())
   const prog=document.getElementById('m-progress'); if(prog) prog.style.width= m.running? (m.intensity+'%') : '0%'
   refreshTray()
 })

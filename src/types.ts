@@ -12,6 +12,8 @@ export interface MinerState {
   session: number
   balance: number
   creditsPerShare: number | null
+  dailyEarned: number
+  dailyCap: number | null
 }
 
 export interface WalletState {
