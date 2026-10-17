@@ -1,4 +1,4 @@
-/* SolanaOS — CherryOS exact replica theme — TypeScript */
+/* AetherOS theme */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Pixelify+Sans:wght@400;600;700&family=Silkscreen&display=swap');
 :root{
   --ink:#3b1240;--ink2:#6a3a73;--inkSoft:rgba(59,18,64,.55);
@@ -47,7 +47,7 @@ button{font:inherit}
 @keyframes bob{50%{transform:translateY(-10px)}}
 @keyframes blink{50%{opacity:.25}}
 
-/* Has-maximized: icons jadi dock kiri seperti cherryOS tapi tetap terlihat semua (request user) */
+/* Has-maximized: icons become a left dock but stay fully visible */
 body.has-maximized .desktop-icons{
   left:8px;top:8px;bottom:calc(var(--taskbar) + 8px);width:102px;grid-auto-flow:row;grid-template-columns:1fr;grid-template-rows:none;grid-auto-rows:72px;gap:4px;
   background:rgba(255,248,252,.78);backdrop-filter:blur(12px);border:2px solid var(--ink);border-radius:12px;padding:8px 4px;overflow-y:auto;overflow-x:hidden;z-index:70;box-shadow:var(--shadow)
@@ -333,7 +333,7 @@ body.has-maximized .desktop-branding{opacity:0}
   .taskbar-start-btn{height:36px;padding:0 14px;font-size:11px;flex-shrink:0}
   .taskbar-apps{flex:1 1 auto;min-width:0;gap:6px;overflow-x:auto}
   .taskbar-app{height:34px;padding:0 12px;font-size:10px;flex-shrink:0;border-radius:10px}
-  /* HANYA JAM — sembunyikan semua tray-item di HP */
+  /* Phone: show only the clock, hide every tray item */
   .taskbar-tray{flex:none;gap:0;background:none;border:none}
   .tray-item{display:none!important}
   .tray-time{
@@ -369,7 +369,7 @@ body.has-maximized .desktop-branding{opacity:0}
   .mobile-dock-hint{display:flex;position:fixed;bottom:calc(var(--taskbar) + 72px);left:50%;transform:translateX(-50%);z-index:40;gap:6px;padding:8px 14px;background:rgba(59,18,64,.88);color:#fff;border-radius:99px;font:400 10px var(--pixel);align-items:center;animation:hintPulse 2s infinite;pointer-events:none}
   .mobile-dock-hint::before{content:'↕';font-size:12px}
   body.has-maximized .mobile-scrim{display:block}
-  /* windows above dock/scrim — active paling depan */
+  /* windows above dock and scrim, the active one in front */
   #windows-container{ z-index:20 }
   .desktop-icons{ z-index:1 }
   body.has-maximized .desktop-icons{ z-index:1; pointer-events:none; opacity:.35 }
@@ -524,4 +524,10 @@ body.has-maximized .desktop-branding{opacity:0}
 .lb-loading{padding:16px 12px;font:12px var(--mono);color:var(--inkSoft)}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}
+
+/* Four-column leaderboard on phones: the older 520px minimum width was made for five columns and hid CREDITS. */
+@media (max-width:760px){
+  .lb-table.lb4 .lb-header,.lb-table.lb4 .lb-row{min-width:0;gap:6px;padding:10px;grid-template-columns:28px minmax(0,1.4fr) minmax(0,.7fr) minmax(0,1fr)}
+  .lb-table.lb4 .lb-row{font-size:11px}
 }

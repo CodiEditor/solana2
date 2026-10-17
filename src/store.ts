@@ -19,6 +19,7 @@ export const wallet: WalletState = {
 
 export const miner: MinerState = {
   running: false,
+  waiting: false,
   intensity: 75,
   hashrate: 0,
   found: 0,
@@ -158,6 +159,7 @@ async function requestChallenge(id: number, attempt = 0): Promise<boolean> {
     if (id !== runId || !worker) return false
     miner.creditsPerShare = c.creditsPerShare ?? miner.creditsPerShare
     cooldownMs = c.cooldownMs ?? cooldownMs
+    miner.waiting = false
     worker.postMessage({ type: 'start', challenge: c.challenge, difficulty: c.difficulty, target: c.target, intensity: miner.intensity })
     return true
   } catch (e) {
@@ -185,6 +187,8 @@ async function submitProof(msg: { nonce: number; hash: string; challenge: string
       if (e instanceof ApiError && e.status === 429 && attempt === 0) {
         const wait = Math.min(Number(e.body?.retryAfterMs) || cooldownMs, 30_000)
         log(`Too fast. Waiting ${Math.ceil(wait / 1000)}s before submitting.`)
+        miner.waiting = true
+        tickCb?.(miner, fmtUptime(uptimeSec))
         await sleep(wait + 250)
         if (id !== runId) return null
         continue
@@ -223,6 +227,8 @@ async function onProof(msg: { nonce: number; hash: string; challenge: string; at
   const wait = cooldownMs - (Date.now() - lastAcceptedAt)
   if (wait > 0) {
     log(`Next share in ${Math.ceil(wait / 1000)}s.`)
+    miner.waiting = true
+    tickCb?.(miner, fmtUptime(uptimeSec))
     await sleep(wait)
   }
   if (!miner.running || id !== runId) return
@@ -261,6 +267,7 @@ export function stopMining() {
   const wasRunning = miner.running
   runId++
   miner.running = false
+  miner.waiting = false
   miner.hashrate = 0
   submitting = false
   if (worker) { worker.postMessage({ type: 'stop' }); worker.terminate(); worker = null }

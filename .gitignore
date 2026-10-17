@@ -25,3 +25,8 @@ data.json
 *.njsproj
 *.sln
 *.sw?
+
+# Local environment files (copy .env.example to .env). Never commit real secrets.
+.env
+.env.*
+!.env.example

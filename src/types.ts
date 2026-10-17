@@ -3,6 +3,7 @@ export type Wallpaper = 'aurora' | 'dusk' | 'night' | 'neon'
 
 export interface MinerState {
   running: boolean
+  waiting: boolean
   intensity: number
   hashrate: number
   found: number

@@ -211,7 +211,7 @@ function doShutdown(){
   syncMaximizedClass()
   const ov=document.getElementById('shutdown-overlay')
   if(ov){ ov.classList.remove('hidden'); ov.classList.add('show') }
-  toast('AetherOS shut down — click to reboot','info')
+  toast('AetherOS shut down. Click to reboot.','info')
   haptic(30)
 }
 function doReboot(){
@@ -402,6 +402,8 @@ let leaderLoadedAt = 0
 const logLineHTML = (l: LogLine) =>
   `<div class="log-line"><span class="log-time">${new Date(l.at).toLocaleTimeString()}</span> &gt; ${l.kind === 'ok' ? '<span style="color:#14F195">' : l.kind === 'error' ? '<span style="color:#ff4d6a">' : '<span>'}${esc(l.text)}</span></div>`
 
+const minerStatus = () => !miner.running ? 'stopped' : miner.waiting ? 'waiting' : 'mining'
+
 function minerBody(): string {
   const connected = !!wallet.address
   const lines = minerLog.length
@@ -419,7 +421,7 @@ function minerBody(): string {
         </div>
       </div>
       <div class="ck-card ck-terminal">
-        <div class="ck-card-head">miner.exe · ${miner.running ? 'mining' : 'idle'} · ${wallet.address ? shortAddr(wallet.address) : 'no wallet'}</div>
+        <div class="ck-card-head">miner.exe · ${miner.running ? minerStatus() : 'idle'} · ${wallet.address ? shortAddr(wallet.address) : 'no wallet'}</div>
         <div class="ck-stats">
           <div><span>hashrate</span><b class="t-green" id="m-hashrate">${miner.hashrate} H/s</b></div>
           <div><span>shares found</span><b id="m-found">${miner.found}</b></div>
@@ -427,8 +429,8 @@ function minerBody(): string {
           <div><span>balance</span><b class="t-sol" id="m-balance">${miner.balance.toFixed(4)} cr</b></div>
           <div><span>session</span><b class="t-sol" id="m-session">+${miner.session.toFixed(4)} cr</b></div>
           <div><span>uptime</span><b id="m-uptime">00:00:00</b></div>
-          <div><span>status</span><b class="${miner.running ? 't-green' : 't-yellow'}" id="m-status">${miner.running ? 'mining' : 'stopped'}</b></div>
-          <div><span>reward</span><b id="m-reward">${miner.creditsPerShare === null ? '—' : miner.creditsPerShare + ' cr / share'}</b></div>
+          <div><span>status</span><b class="${miner.running ? 't-green' : 't-yellow'}" id="m-status">${minerStatus()}</b></div>
+          <div><span>reward</span><b id="m-reward">${miner.creditsPerShare === null ? 'n/a' : miner.creditsPerShare + ' cr / share'}</b></div>
         </div>
         <div class="ck-progress"><div id="m-progress" style="width:${miner.running ? miner.intensity + '%' : '0%'}"></div></div>
         <div class="ck-log" id="miner-log">${lines}</div>
@@ -624,8 +626,8 @@ onMinerTick((m, uptime)=>{
   const set=(id:string,v:string)=>{ const e=document.getElementById(id); if(e) e.textContent=v }
   set('m-hashrate', `${m.hashrate} H/s`); set('m-found', `${m.found}`); set('m-accepted', `${m.accepted}`)
   set('m-session', `+${m.session.toFixed(4)} cr`); set('m-balance', `${m.balance.toFixed(4)} cr`); set('m-uptime', uptime)
-  set('m-status', m.running?'mining':'stopped')
-  set('m-reward', m.creditsPerShare===null ? '—' : `${m.creditsPerShare} cr / share`)
+  set('m-status', minerStatus())
+  set('m-reward', m.creditsPerShare===null ? 'n/a' : `${m.creditsPerShare} cr / share`)
   const prog=document.getElementById('m-progress'); if(prog) prog.style.width= m.running? (m.intensity+'%') : '0%'
   refreshTray()
 })

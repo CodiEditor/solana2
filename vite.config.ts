@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   base: './',
   server: {
     proxy: {
@@ -11,11 +11,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    outDir: mode === 'mainnet' ? 'dist-mainnet' : mode === 'testnet' ? 'dist-testnet' : 'dist',
+    outDir: 'dist',
     sourcemap: false,
   },
-  define: {
-    __APP_MODE__: JSON.stringify(mode),
-  },
-}))
-
+})

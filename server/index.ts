@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto'
 import { fileURLToPath } from 'url'
 import helmet from 'helmet'
 import morgan from 'morgan'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import nacl from 'tweetnacl'
@@ -49,12 +49,19 @@ app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'))
 // Trust proxy for Railway/Vercel
 app.set('trust proxy', 1)
 
-// Rate limiters
+// Rate limiters. Behind Vercel and Railway every visitor can arrive from the same IP, so a
+// limit keyed by IP would be shared by all users. Key by wallet address when the request has
+// one (signed-in session, query, path or body) and fall back to the IP otherwise.
+const limitKey = (req: express.Request): string => {
+  const candidate = (req as any).authAddress ?? req.params?.address ?? req.query?.address ?? req.body?.address
+  return typeof candidate === 'string' && isSolanaAddress(candidate) ? candidate : ipKeyGenerator(req.ip ?? '')
+}
 const limiter = (max: number, message?: string) => rateLimit({
   windowMs: 60 * 1000,
   max,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: limitKey,
   ...(message ? { message: { error: message } } : {}),
 })
 const authLimiter = limiter(20, 'Too many sign-in attempts. Try again in a minute.')
@@ -150,7 +157,14 @@ const connectSchema = z.object({ address: addressSchema })
 
 function shortAddr(a: string) { return a.slice(0, 4) + '…' + a.slice(-4) }
 
+const MAX_NONCES = 20_000
+
 function issueNonce(address: string) {
+  // Cap the map so a flood of throwaway addresses cannot grow it without bound.
+  if (authNonces.size >= MAX_NONCES) {
+    const oldest = authNonces.keys().next().value
+    if (oldest !== undefined) authNonces.delete(oldest)
+  }
   const nonce = randomBytes(16).toString('hex')
   const message = `Sign in to AetherOS\nNonce: ${nonce}`
   const expiresAt = Date.now() + NONCE_TTL
@@ -266,7 +280,7 @@ app.get('/api/wallet/:address', walletLimiter, (req, res) => {
   res.json({ address: addr, balance: w.balance, shares: sharesOf(addr, w), exists: true })
 })
 
-app.post('/api/wallet/connect', walletLimiter, requireAuth, (req, res) => {
+app.post('/api/wallet/connect', requireAuth, walletLimiter, (req, res) => {
   const parsed = connectSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Validation failed' })
   const { address } = parsed.data
@@ -284,7 +298,7 @@ app.post('/api/wallet/connect', walletLimiter, requireAuth, (req, res) => {
 })
 
 // ---------- Mining ----------
-app.get('/api/mining/challenge', challengeLimiter, requireAuth, (req, res) => {
+app.get('/api/mining/challenge', requireAuth, challengeLimiter, (req, res) => {
   const address = typeof req.query.address === 'string' ? req.query.address : ''
   if (!isSolanaAddress(address)) return res.status(400).json({ error: 'A valid Solana address is required.' })
   if ((req as any).authAddress !== address) {
@@ -306,7 +320,7 @@ app.get('/api/mining/challenge', challengeLimiter, requireAuth, (req, res) => {
   })
 })
 
-app.post('/api/mining/submit', miningLimiter, requireAuth, (req, res) => {
+app.post('/api/mining/submit', requireAuth, miningLimiter, (req, res) => {
   const parsed = submitSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Validation failed' })
   const { address, nonce, hash, challenge } = parsed.data

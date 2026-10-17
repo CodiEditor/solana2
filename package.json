@@ -6,15 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "tsx watch server/index.ts",
-    "dev:testnet": "vite --mode testnet",
-    "dev:mainnet": "vite --mode mainnet",
     "build": "tsc && vite build",
-    "build:testnet": "tsc && vite build --mode testnet",
-    "build:mainnet": "tsc && vite build --mode mainnet",
-    "build:all": "npm run build:testnet && npm run build:mainnet",
     "preview": "vite preview",
-    "preview:testnet": "vite preview --mode testnet",
-    "preview:mainnet": "vite preview --mode mainnet",
     "start": "node --import tsx/esm server/index.ts",
     "start:prod": "npm run build && npm start"
   },
