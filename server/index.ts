@@ -461,7 +461,12 @@ if (fs.existsSync(path.join(distPath, 'index.html'))) {
   })
 }
 
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Bad input from a client (broken JSON, a body over the size limit) is a 4xx, not a server fault.
+  const status = Number(err?.status ?? err?.statusCode)
+  if (status >= 400 && status < 500) {
+    return res.status(status).json({ error: status === 413 ? 'Request too large' : 'Invalid request' })
+  }
   console.error('Unhandled error:', err)
   res.status(500).json({ error: 'Internal server error' })
 })
