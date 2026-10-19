@@ -539,3 +539,7 @@ body.has-maximized .desktop-branding{opacity:0}
 
 /* Credits values on light surfaces use a deeper blue; the dark miner terminal keeps the light one. */
 .app-content .t-sol,.cherry-app .ck-card:not(.ck-terminal) .t-sol,.lb-table .t-sol{color:#1f6bc4!important}
+
+/* Touch targets: standalone links and the intensity slider should be at least 24px tall. */
+.about-link,.brand-legal a{display:inline-block;padding:6px 4px;min-height:24px}
+input[type="range"]{min-height:24px}

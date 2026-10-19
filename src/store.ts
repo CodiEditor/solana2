@@ -116,8 +116,12 @@ function clearSession() {
   wallet.walletName = null
   miner.balance = 0
   miner.session = 0
+  miner.found = 0
+  miner.accepted = 0
+  miner.rejected = 0
   miner.dailyEarned = 0
   miner.dailyCap = null
+  minerLog.length = 0
   clearAuthToken()
   storage.remove(LS_WALLET)
   storage.remove(LS_WALLET_NAME)
