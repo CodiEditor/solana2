@@ -441,7 +441,7 @@ const logLineHTML = (l: LogLine) =>
 
 const minerStatus = () => !miner.running ? 'stopped' : miner.waiting ? 'waiting' : 'mining'
 const dailyText = () => miner.dailyCap === null
-  ? 'Each accepted share adds credits to your balance. Credits set your place on the leaderboard.'
+  ? 'Each accepted share adds credits to your balance. Shares set your place on the leaderboard, and credits pay for the assistant.'
   : `Each accepted share adds ${miner.creditsPerShare ?? 1} cr. Daily limit ${miner.dailyCap} cr per wallet, resetting at 00:00 UTC. Today: ${miner.dailyEarned} of ${miner.dailyCap} cr.`
 
 function minerBody(): string {

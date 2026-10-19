@@ -12,6 +12,18 @@ A browser-based desktop where you mine credits with a Solana wallet, spend them 
 
 Credits are kept by the server and only spent inside the app. They are not a token.
 
+## Credits
+
+One balance per wallet, kept in `data.json`. Every number below comes from the server, and the UI shows the server's values (`/api/wallet/:address`, `/api/mining/challenge`, `/api/assistant/status`) rather than its own copies.
+
+- Earned: `CREDITS_PER_SHARE` (default 1) for each accepted share. A share needs a SHA-256 hash of `challenge + nonce` at or below the target, which is `MINING_DIFFICULTY` leading zero hex digits (default 5, about 1,048,576 hashes).
+- Earning limits: at least `SUBMIT_COOLDOWN_MS` (default 10,000) between accepted shares of one wallet, and at most `DAILY_CREDIT_CAP` (default 1,000) per UTC day. A share that would pass the cap is refused, and the server stops issuing challenges until 00:00 UTC.
+- Spent: `AI_MESSAGE_CREDITS` (default 2) per assistant message and `AI_PROFILE_CREDITS` (default 50) per profile, taken when the request starts and returned if no answer comes back.
+- Balance = earned minus spent, rounded to four decimals. The leaderboard ranks by accepted shares, then by balance, so spending never moves a wallet down.
+- Credits cannot be bought, sold, transferred or withdrawn.
+
+With the defaults a browser tab earns roughly 1.5 to 2 credits a minute: about 20 to 30 seconds of hashing per share on a laptop CPU (measured on the live site at 26,000 to 45,000 H/s), plus the 10 second wait. A message is about a minute of mining and a profile about half an hour.
+
 ## The assistant
 
 Code: `server/assistant.ts` (Claude calls, prompts, price math, Solana balance check), the `/api/assistant/*` routes in `server/index.ts`, and `src/assistant.ts` for the window.
