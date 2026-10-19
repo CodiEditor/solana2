@@ -54,7 +54,7 @@ Claude Haiku 5.5 list prices: $0.10 per million input tokens and $0.50 per milli
 | Chat message | about 3,000 tokens in, 300 out: about $0.0005 | profile 4,000 + 12 turns of history 16,000 + message, 2,000 out: about $0.003 |
 | Profile | 20,000 characters read, 3,000 out: about $0.002 | 150,000 characters (about 50,000 tokens), 12,000 out: about $0.011 |
 
-Per wallet the daily limits (100 messages and 3 profiles) cap the cost at about $0.34 a day, and typical use of those limits is about $0.05 a day. Credits limit it further: a day at the limits costs 350 credits, roughly three to four hours of mining.
+Per wallet the daily limits (100 messages and 3 profiles) cap the cost at about $0.34 a day, and typical use of those limits is about $0.05 a day. Credits limit it further: a day at the limits costs 350 credits, roughly 3 to 10 hours of mining.
 
 | Month at `AI_MONTHLY_BUDGET_USD=50` | Covers |
 | --- | --- |

@@ -22,7 +22,7 @@ One balance per wallet, kept in `data.json`. Every number below comes from the s
 - Balance = earned minus spent, rounded to four decimals. The leaderboard ranks by accepted shares, then by balance, so spending never moves a wallet down.
 - Credits cannot be bought, sold, transferred or withdrawn.
 
-With the defaults a browser tab earns roughly 1.5 to 2 credits a minute: about 20 to 30 seconds of hashing per share on a laptop CPU (measured on the live site at 26,000 to 45,000 H/s), plus the 10 second wait. A message is about a minute of mining and a profile about half an hour.
+With the defaults a browser tab earns roughly 0.6 to 2 credits a minute. A share averages 1,048,576 hashes, which took 23 to 87 seconds in the live-site runs (12,000 to 45,000 H/s at 75% intensity, depending on the CPU and its load), plus the 10 second wait. A message is one to three minutes of mining and a profile 25 to 80 minutes.
 
 ## The assistant
 
