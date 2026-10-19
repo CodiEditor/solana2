@@ -32,22 +32,29 @@
     <div class="card">
       <a class="brand" href="./">AetherOS</a>
       <h1>Privacy</h1>
-      <p class="updated">Updated 17 October 2026</p>
+      <p class="updated">Updated 19 October 2026</p>
 
       <h2>What the server stores</h2>
       <p>Your wallet address, your credit balance, your count of accepted shares, the times your wallet first connected and was last seen, the credits you earned today (for the daily limit), and a short list of recent accepted shares with address, time and credits. Sign-in messages and mining challenges are kept in memory for a short time and then dropped.</p>
+      <p>If you use assistant.exe, the server also stores the profile Claude wrote, the name you gave the assistant, the name and length of the file it read, how many messages and profiles you used today, and the credits you spent. It does not store the text you upload or your chat messages: they pass through the server to Anthropic, and the reply comes back the same way. Your SOL balance is held in memory for up to 30 minutes so it is not checked on every message.</p>
+
+      <h2>Anthropic</h2>
+      <p>To write a profile and to answer a message, the server sends Anthropic the text you upload, or your profile together with the messages of the open chat. Anthropic handles that data under its <a href="https://www.anthropic.com/legal/commercial-terms" target="_blank" rel="noopener noreferrer">commercial terms</a> and <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer">privacy policy</a>. Your wallet address is not sent to Anthropic.</p>
+
+      <h2>Solana</h2>
+      <p>To check the 0.01 SOL that the assistant needs, the server asks a public Solana RPC endpoint for your wallet's balance. That request carries your public address.</p>
 
       <h2>What the leaderboard shows</h2>
       <p>The leaderboard is public. It shows a shortened address (the first four and last four characters), shares and credits.</p>
 
       <h2>What your browser sends</h2>
-      <p>Your wallet address, the signature of the sign-in message, and mining proofs (a nonce, a hash and a challenge). AetherOS does not collect names, emails, locations or hardware details.</p>
+      <p>Your wallet address, the signature of the sign-in message, mining proofs (a nonce, a hash and a challenge), and, in assistant.exe, the text you upload and the messages you write. AetherOS does not collect names, emails, locations or hardware details.</p>
 
       <h2>Request logs</h2>
-      <p>Like most web services, requests are logged with the time, IP address, requested path, response code and browser user agent. The hosting providers, Vercel for the pages and Railway for the API, handle your requests and keep their own logs under their own policies.</p>
+      <p>Like most web services, requests are logged with the time, IP address, requested path, response code and browser user agent. Assistant calls are logged with a shortened address, token counts and cost, never with their text. The hosting provider that runs AetherOS keeps its own logs under its own policy.</p>
 
       <h2>What stays in your browser</h2>
-      <p>Local storage holds your wallet address, your wallet name, your sign-in token (valid for 24 hours) and your wallpaper choice. AetherOS sets no cookies and uses no analytics, ads or third-party trackers.</p>
+      <p>Local storage holds your wallet address, your wallet name, your sign-in token (valid for 24 hours) and your wallpaper choice. The open chat lives only in the open tab and is gone when you reload, start a new chat or disconnect. AetherOS sets no cookies and uses no analytics, ads or third-party trackers.</p>
 
       <h2>Fonts</h2>
       <p>The pages load fonts from Google Fonts, so Google receives your IP address and browser details when a page loads.</p>
@@ -56,7 +63,7 @@
       <p>AetherOS sees your public address and a signature. It never sees your private key or your seed phrase. Your wallet app has its own policies.</p>
 
       <h2>Keeping and removing data</h2>
-      <p>Balances and shares are kept while the service runs or until they are reset. Pressing DISCONNECT in wallet.exe removes your token and wallet details from this browser. Server records stay, and they hold only the data listed above.</p>
+      <p>Balances and shares are kept while the service runs or until they are reset. DELETE PROFILE in assistant.exe removes your assistant's profile from the server. Pressing DISCONNECT in wallet.exe removes your token and wallet details from this browser. Server records stay, and they hold only the data listed above.</p>
 
       <h2>Changes to this policy</h2>
       <p>This policy can change. The date at the top shows the latest version.</p>

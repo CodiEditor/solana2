@@ -72,6 +72,7 @@ body.has-maximized .desktop-branding{opacity:0}
 .window-body{flex:1;overflow:auto;position:relative;min-height:0;background:var(--paper)}
 .window.maximized .window-body{overflow-y:auto}
 @keyframes pop{from{transform:scale(.92);opacity:0}}
+.window.no-pop{animation:none}
 
 /* App content — cherryOS .pad + cards */
 .app-content{padding:16px;display:flex;flex-direction:column;gap:12px;height:100%}
@@ -543,3 +544,30 @@ body.has-maximized .desktop-branding{opacity:0}
 /* Touch targets: standalone links and the intensity slider should be at least 24px tall. */
 .about-link,.brand-legal a{display:inline-block;padding:6px 4px;min-height:24px}
 input[type="range"]{min-height:24px}
+
+/* assistant.exe */
+.ai-app .ck-chat.ai-chat{max-height:none;min-height:180px;height:min(42vh,340px);padding:8px;background:var(--paper2);border:2px solid var(--line);border-radius:10px}
+.ai-app .ck-bubble{white-space:pre-wrap;word-break:break-word;line-height:1.5}
+.ai-app .ck-bubble.user{background:var(--pinkSoft);color:var(--ink)}
+.ai-app .ck-bubble.bot{background:#fff}
+.ai-typing{color:var(--inkSoft);font-style:italic}
+.ai-cut{display:block;margin-top:6px;font:10px var(--mono);color:var(--inkSoft)}
+.ai-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ai-head span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-compose{display:flex;gap:8px;align-items:flex-end}
+.ai-textarea{flex:1;min-width:0;width:100%;resize:vertical;border:2px solid var(--ink);border-radius:9px;padding:8px 10px;background:#fff;color:var(--ink);font:12px/1.5 var(--mono)}
+.ai-dataset{min-height:120px;max-height:40vh}
+.ai-label{font:400 10px var(--pixel);color:var(--inkSoft)}
+.ai-app .ck-input{width:100%;color:var(--ink)}
+.ai-file{position:relative;overflow:hidden}
+.ai-file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.ai-file:focus-within{outline:2px solid var(--pinkDeep);outline-offset:2px}
+.ai-gate{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ai-gate > span:nth-child(2){flex:1;min-width:160px}
+.ai-ellipsis{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-profile{max-height:240px}
+.ai-app .ck-btn:disabled{opacity:.55;cursor:not-allowed}
+@media (max-width:760px){
+  .ai-compose{flex-direction:column;align-items:stretch}
+  .ai-app .ck-chat.ai-chat{height:46vh}
+}

@@ -13,8 +13,12 @@ import jwt from 'jsonwebtoken'
 import nacl from 'tweetnacl'
 import bs58 from 'bs58'
 import { generateChallenge, verifyProof } from './crypto'
+import { envNumber } from './env'
 
 dotenv.config()
+
+// Loaded after dotenv so a local .env can supply ANTHROPIC_API_KEY.
+const ai = await import('./assistant')
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -43,7 +47,13 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
-app.use(express.json({ limit: '64kb' }))
+// Small bodies everywhere except the assistant, which receives a dataset or a chat history.
+const bodyLimits: Record<string, express.RequestHandler> = {
+  '/api/assistant/profile': express.json({ limit: '1mb' }),
+  '/api/assistant/chat': express.json({ limit: '256kb' }),
+}
+const smallBody = express.json({ limit: '64kb' })
+app.use((req, res, next) => (bodyLimits[req.path] ?? smallBody)(req, res, next))
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'))
 
 // Trust proxy for Railway/Vercel
@@ -62,19 +72,19 @@ const limiter = (max: number, message?: string) => rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: limitKey,
-  ...(message ? { message: { error: message } } : {}),
+  ...(message ? { message: { error: message, code: 'rate_limited' } } : {}),
 })
 const authLimiter = limiter(20, 'Too many sign-in attempts. Try again in a minute.')
 const challengeLimiter = limiter(500, 'Too many challenge requests, please slow down.')
 const miningLimiter = limiter(200, 'Mining rate limit exceeded. Slow down.')
 const walletLimiter = limiter(60)
+const assistantLimiter = limiter(
+  Math.round(envNumber('AI_REQUESTS_PER_MINUTE', 30, 1, 10_000)),
+  'Too many assistant requests. Try again in a minute.',
+)
 
 // ---------- Mining rules ----------
 // Each value can be tuned with an environment variable. Out-of-range values fall back to the default.
-const envNumber = (name: string, fallback: number, min: number, max: number) => {
-  const n = Number(process.env[name])
-  return Number.isFinite(n) && process.env[name] !== '' && n >= min && n <= max ? n : fallback
-}
 // Difficulty is the number of leading zero hex digits a hash needs: about 16^5 = 1,048,576 hashes
 // per share at 5, which takes a typical browser tab tens of seconds.
 const MINING_DIFFICULTY = Math.round(envNumber('MINING_DIFFICULTY', 5, 1, 8))
@@ -109,11 +119,21 @@ type Wallet = {
   lastSeen: number
   dayKey?: string      // UTC date of the last accepted share, e.g. 2026-10-17
   dayCredits?: number  // credits earned on that date
+  aiDayKey?: string    // UTC date of the last assistant use
+  aiMessages?: number  // chat messages on that date
+  aiProfiles?: number  // profiles built on that date
+  aiSpent?: number     // credits spent on the assistant, all time
 }
+// The profile Claude wrote from a dataset. The dataset itself is never stored.
+type AssistantProfile = { name: string; sourceName: string; datasetChars: number; text: string; builtAt: number }
+type AiMonth = { month: string; spentUsd: number; calls: number }
 
 let shares: Share[] = []
 const wallets = new Map<string, Wallet>()
 let totalSharesAccepted = 0
+const profiles = new Map<string, AssistantProfile>()
+const monthKeyNow = () => new Date().toISOString().slice(0, 7)
+let aiMonth: AiMonth = { month: monthKeyNow(), spentUsd: 0, calls: 0 }
 
 function loadData() {
   try {
@@ -124,6 +144,10 @@ function loadData() {
       for (const [addr, w] of data.wallets) wallets.set(addr, w)
     }
     totalSharesAccepted = data.totalSharesAccepted || 0
+    if (Array.isArray(data.profiles)) {
+      for (const [addr, p] of data.profiles) profiles.set(addr, p)
+    }
+    if (data.aiMonth && typeof data.aiMonth.spentUsd === 'number') aiMonth = data.aiMonth
     console.log(`Loaded ${wallets.size} wallets and ${shares.length} shares from ${DATA_FILE}`)
   } catch (e) {
     console.warn('Failed to load data file:', e)
@@ -138,6 +162,8 @@ function saveData() {
       shares: shares.slice(-2000),
       wallets: [...wallets.entries()],
       totalSharesAccepted,
+      profiles: [...profiles.entries()],
+      aiMonth,
       updatedAt: Date.now(),
     }
     // Write to a temp file first so a crash mid-write cannot corrupt the data file.
@@ -264,7 +290,8 @@ function getLeaderboard() {
     credits: Number(w.balance.toFixed(4)),
     shares: sharesOf(addr, w),
   }))
-  rows.sort((a, b) => b.credits - a.credits)
+  // Ranked by work done, so spending credits on the assistant never costs a place.
+  rows.sort((a, b) => b.shares - a.shares || b.credits - a.credits)
   return rows.map((r, i) => ({ ...r, rank: i + 1 }))
 }
 const publicRow = ({ addr: _addr, ...row }: ReturnType<typeof getLeaderboard>[number]) => row
@@ -429,6 +456,263 @@ app.post('/api/mining/submit', requireAuth, miningLimiter, (req, res) => {
     dailyEarned: w.dayCredits,
     dailyCap: DAILY_CREDIT_CAP,
   })
+})
+
+// ---------- Assistant ----------
+// Credits pay for Claude calls. Server-side guards keep the bill inside AI_MONTHLY_BUDGET_USD:
+// a price in credits, a daily limit per wallet, a minimum wallet age, a minimum SOL balance on
+// Solana mainnet, one call at a time per wallet, and a monthly dollar cap across everyone.
+const AI_MESSAGE_CREDITS = envNumber('AI_MESSAGE_CREDITS', 2, 0, 100_000)
+const AI_PROFILE_CREDITS = envNumber('AI_PROFILE_CREDITS', 50, 0, 1_000_000)
+const AI_DAILY_MESSAGES = Math.round(envNumber('AI_DAILY_MESSAGES', 100, 0, 100_000))
+const AI_DAILY_PROFILES = Math.round(envNumber('AI_DAILY_PROFILES', 3, 0, 1000))
+const AI_MONTHLY_BUDGET_USD = envNumber('AI_MONTHLY_BUDGET_USD', 50, 0, 1_000_000)
+const AI_MIN_WALLET_AGE_HOURS = envNumber('AI_MIN_WALLET_AGE_HOURS', 24, 0, 24 * 365)
+const AI_MIN_WALLET_AGE_MS = AI_MIN_WALLET_AGE_HOURS * 3_600_000
+const AI_MIN_SOL = envNumber('AI_MIN_SOL', 0.01, 0, 1_000_000)
+const AI_MAX_CONCURRENT = Math.round(envNumber('AI_MAX_CONCURRENT', 8, 1, 200))
+const DATASET_MIN_CHARS = 200
+const DATASET_MAX_CHARS = 150_000
+const MESSAGE_MAX_CHARS = 2_000
+const HISTORY_MAX_TURNS = 12
+const HISTORY_TURN_MAX_CHARS = 4_000
+const PROFILE_MAX_CHARS = 12_000
+
+const aiInFlight = new Set<string>()
+let aiReservedUsd = 0
+const solChecks = new Map<string, { sol: number; at: number }>()
+const SOL_OK_TTL = 30 * 60_000
+const SOL_LOW_TTL = 60_000
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of solChecks) if (now - v.at > SOL_OK_TTL) solChecks.delete(k)
+}, 60_000)
+
+function rollAiMonth() {
+  const m = monthKeyNow()
+  if (aiMonth.month !== m) aiMonth = { month: m, spentUsd: 0, calls: 0 }
+}
+const nextMonthAt = () => {
+  const d = new Date()
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
+}
+const budgetOpen = (extraUsd = 0) => {
+  rollAiMonth()
+  return aiMonth.spentUsd + aiReservedUsd + extraUsd <= AI_MONTHLY_BUDGET_USD
+}
+const aiToday = (w?: Wallet) => (w && w.aiDayKey === dayKeyNow()
+  ? { messages: w.aiMessages ?? 0, profiles: w.aiProfiles ?? 0 }
+  : { messages: 0, profiles: 0 })
+const walletReadyAt = (w: Wallet) => w.createdAt + AI_MIN_WALLET_AGE_MS
+
+// SOL balance on mainnet, cached so chat does not hit the RPC on every message. A low balance is
+// cached for a minute only, so a wallet that was just funded passes soon after.
+async function solOf(address: string, recheck = false): Promise<number | null> {
+  const cached = solChecks.get(address)
+  if (cached && !recheck) {
+    const ttl = cached.sol >= AI_MIN_SOL ? SOL_OK_TTL : SOL_LOW_TTL
+    if (Date.now() - cached.at < ttl) return cached.sol
+  }
+  try {
+    const sol = await ai.solBalance(address)
+    solChecks.set(address, { sol, at: Date.now() })
+    return sol
+  } catch (e) {
+    console.warn('Solana balance check failed:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+type Gate = { status: number; body: Record<string, unknown> }
+const offlineGate: Gate = { status: 503, body: { code: 'offline', error: 'The assistant is not available right now. Try again later.' } }
+
+async function assistantGate(address: string, kind: 'message' | 'profile', estimateUsd: number): Promise<Gate | null> {
+  if (!ai.assistantEnabled()) return offlineGate
+  const w = wallets.get(address)
+  if (!w) return { status: 403, body: { code: 'no_wallet', error: 'Connect your wallet first.' } }
+  if (Date.now() < walletReadyAt(w)) {
+    return { status: 403, body: { code: 'wallet_age', readyAt: walletReadyAt(w), error: `The assistant opens ${AI_MIN_WALLET_AGE_HOURS} hours after a wallet's first sign-in.` } }
+  }
+  const today = aiToday(w)
+  if (kind === 'message' && today.messages >= AI_DAILY_MESSAGES) {
+    return { status: 429, body: { code: 'daily_limit', resetAt: nextResetAt(), error: `You have used today's ${AI_DAILY_MESSAGES} messages. More at 00:00 UTC.` } }
+  }
+  if (kind === 'profile' && today.profiles >= AI_DAILY_PROFILES) {
+    return { status: 429, body: { code: 'daily_limit', resetAt: nextResetAt(), error: `You have built ${AI_DAILY_PROFILES} profiles today. More at 00:00 UTC.` } }
+  }
+  const price = kind === 'message' ? AI_MESSAGE_CREDITS : AI_PROFILE_CREDITS
+  if (w.balance < price) {
+    return { status: 402, body: { code: 'credits', price, balance: w.balance, error: `This costs ${price} cr and your balance is ${w.balance.toFixed(4)} cr. Mine more in miner.exe.` } }
+  }
+  const sol = await solOf(address)
+  if (sol === null) return { status: 503, body: { code: 'sol_unknown', error: 'Could not check your SOL balance right now. Try again in a minute.' } }
+  if (sol < AI_MIN_SOL) {
+    return { status: 403, body: { code: 'sol_balance', sol, minSol: AI_MIN_SOL, error: `The assistant needs a wallet holding at least ${AI_MIN_SOL} SOL on Solana. This one holds ${sol} SOL.` } }
+  }
+  // Checked last, after the await, so nothing can start in between the check and the call.
+  if (aiInFlight.has(address)) return { status: 429, body: { code: 'in_flight', error: 'Wait for the current reply first.' } }
+  if (aiInFlight.size >= AI_MAX_CONCURRENT) return { status: 503, body: { code: 'busy', error: 'The assistant is busy. Try again in a minute.' } }
+  if (!budgetOpen(estimateUsd)) {
+    return { status: 503, body: { code: 'budget', reopensAt: nextMonthAt(), error: "The assistant has used this month's capacity. It opens again on the 1st at 00:00 UTC." } }
+  }
+  return null
+}
+
+// Credits are taken before the call and given back if it fails or Claude declines.
+function beginAiCall(address: string, w: Wallet, price: number, estimateUsd: number) {
+  aiInFlight.add(address)
+  aiReservedUsd += estimateUsd
+  w.accepted = sharesOf(address, w) // fix the share count of old wallets before the balance moves
+  w.balance = round4(w.balance - price)
+}
+function endAiCall(
+  address: string, w: Wallet, kind: 'message' | 'profile', price: number, estimateUsd: number,
+  result: { costUsd: number } | null, delivered: boolean,
+) {
+  aiInFlight.delete(address)
+  aiReservedUsd = Math.max(0, aiReservedUsd - estimateUsd)
+  if (result) {
+    rollAiMonth()
+    aiMonth.spentUsd += result.costUsd
+    aiMonth.calls += 1
+    // Every call Claude answered counts toward the daily limit, so declined requests cannot run up the bill.
+    const today = aiToday(w)
+    w.aiDayKey = dayKeyNow()
+    w.aiMessages = today.messages + (kind === 'message' ? 1 : 0)
+    w.aiProfiles = today.profiles + (kind === 'profile' ? 1 : 0)
+  }
+  if (delivered) w.aiSpent = round4((w.aiSpent ?? 0) + price)
+  else w.balance = round4(w.balance + price)
+  w.lastSeen = Date.now()
+  scheduleSave()
+}
+
+const aiLog = (kind: string, address: string, r: { inputTokens: number; outputTokens: number; costUsd: number; stopReason: string | null }) =>
+  console.log(`assistant ${kind} ${shortAddr(address)} in=${r.inputTokens} out=${r.outputTokens} stop=${r.stopReason} cost=$${r.costUsd.toFixed(5)} month=$${aiMonth.spentUsd.toFixed(4)}/${AI_MONTHLY_BUDGET_USD}`)
+
+const nameSchema = z.string().trim().min(1).max(40).regex(/^[\p{L}\p{N} .,'_-]+$/u, 'Use letters, numbers and spaces')
+const profileSchema = z.object({
+  name: nameSchema,
+  sourceName: z.string().trim().min(1).max(120).default('pasted text'),
+  text: z.string().min(DATASET_MIN_CHARS).max(DATASET_MAX_CHARS),
+})
+const chatSchema = z.object({
+  message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS),
+  history: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    text: z.string().min(1).max(HISTORY_TURN_MAX_CHARS),
+  })).max(60).default([]),
+})
+const stripControl = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+
+app.get('/api/assistant/status', requireAuth, assistantLimiter, async (req, res) => {
+  const address = (req as any).authAddress as string
+  const w = wallets.get(address)
+  const enabled = ai.assistantEnabled()
+  const sol = enabled && w ? await solOf(address, req.query.recheck === '1') : null
+  res.json({
+    enabled,
+    prices: { message: AI_MESSAGE_CREDITS, profile: AI_PROFILE_CREDITS },
+    limits: {
+      messagesPerDay: AI_DAILY_MESSAGES,
+      profilesPerDay: AI_DAILY_PROFILES,
+      datasetMinChars: DATASET_MIN_CHARS,
+      datasetMaxChars: DATASET_MAX_CHARS,
+      messageMaxChars: MESSAGE_MAX_CHARS,
+      historyTurns: HISTORY_MAX_TURNS,
+    },
+    today: aiToday(w),
+    resetAt: nextResetAt(),
+    balance: w?.balance ?? 0,
+    checks: {
+      walletAge: { ok: !!w && Date.now() >= walletReadyAt(w), readyAt: w ? walletReadyAt(w) : null, hours: AI_MIN_WALLET_AGE_HOURS },
+      sol: { ok: sol === null ? null : sol >= AI_MIN_SOL, sol, minSol: AI_MIN_SOL },
+      budget: { ok: budgetOpen(), reopensAt: nextMonthAt() },
+    },
+    profile: profiles.get(address) ?? null,
+  })
+})
+
+app.post('/api/assistant/profile', requireAuth, assistantLimiter, async (req, res) => {
+  const parsed = profileSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ code: 'invalid', error: `Give the assistant a name (letters, numbers, spaces) and between ${DATASET_MIN_CHARS} and ${DATASET_MAX_CHARS.toLocaleString('en-US')} characters of text.` })
+  }
+  const address = (req as any).authAddress as string
+  const name = parsed.data.name
+  const sourceName = stripControl(parsed.data.sourceName)
+  const text = stripControl(parsed.data.text)
+  const estimateUsd = ai.estimateCostUsd(ai.profilePromptChars(text.length), ai.profileMaxTokens)
+  const gate = await assistantGate(address, 'profile', estimateUsd)
+  if (gate) return res.status(gate.status).json(gate.body)
+
+  const w = wallets.get(address)!
+  beginAiCall(address, w, AI_PROFILE_CREDITS, estimateUsd)
+  let result: Awaited<ReturnType<typeof ai.buildProfile>>
+  try {
+    result = await ai.buildProfile(name, sourceName, text)
+  } catch (e) {
+    const d = ai.describeAiError(e)
+    console.error(d.log)
+    endAiCall(address, w, 'profile', AI_PROFILE_CREDITS, estimateUsd, null, false)
+    return res.status(d.status).json({ code: d.code, error: d.error })
+  }
+  aiLog('profile', address, result)
+  if (result.stopReason === 'refusal' || result.stopReason === 'max_tokens' || !result.text) {
+    endAiCall(address, w, 'profile', AI_PROFILE_CREDITS, estimateUsd, result, false)
+    return res.status(422).json(result.stopReason === 'refusal'
+      ? { code: 'refused', error: 'Claude declined to read this text. Try a different file. Your credits were returned.' }
+      : { code: 'cut_off', error: 'The profile came out incomplete. Try a shorter file. Your credits were returned.' })
+  }
+  endAiCall(address, w, 'profile', AI_PROFILE_CREDITS, estimateUsd, result, true)
+  const profile: AssistantProfile = { name, sourceName, datasetChars: text.length, text: result.text.slice(0, PROFILE_MAX_CHARS), builtAt: Date.now() }
+  profiles.set(address, profile)
+  scheduleSave()
+  res.json({ profile, balance: w.balance, today: aiToday(w) })
+})
+
+app.post('/api/assistant/profile/delete', requireAuth, assistantLimiter, (req, res) => {
+  const address = (req as any).authAddress as string
+  if (profiles.delete(address)) scheduleSave()
+  res.json({ ok: true })
+})
+
+app.post('/api/assistant/chat', requireAuth, assistantLimiter, async (req, res) => {
+  const parsed = chatSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ code: 'invalid', error: `Write a message of up to ${MESSAGE_MAX_CHARS.toLocaleString('en-US')} characters.` })
+  }
+  const address = (req as any).authAddress as string
+  const message = stripControl(parsed.data.message)
+  // Recent turns only, and the conversation must open with a user turn.
+  const history = parsed.data.history.slice(-HISTORY_MAX_TURNS).map(t => ({ role: t.role, text: stripControl(t.text) }))
+  while (history.length && history[0].role !== 'user') history.shift()
+  const profile = profiles.get(address)
+  const historyChars = history.reduce((n, t) => n + t.text.length, 0)
+  const estimateUsd = ai.estimateCostUsd(ai.chatPromptChars(profile?.text.length ?? 0, historyChars, message.length), ai.chatMaxTokens)
+  const gate = await assistantGate(address, 'message', estimateUsd)
+  if (gate) return res.status(gate.status).json(gate.body)
+
+  const w = wallets.get(address)!
+  beginAiCall(address, w, AI_MESSAGE_CREDITS, estimateUsd)
+  let result: Awaited<ReturnType<typeof ai.chatReply>>
+  try {
+    result = await ai.chatReply(profile?.name ?? null, profile?.text ?? null, history, message)
+  } catch (e) {
+    const d = ai.describeAiError(e)
+    console.error(d.log)
+    endAiCall(address, w, 'message', AI_MESSAGE_CREDITS, estimateUsd, null, false)
+    return res.status(d.status).json({ code: d.code, error: d.error })
+  }
+  aiLog('message', address, result)
+  if (result.stopReason === 'refusal' || !result.text) {
+    endAiCall(address, w, 'message', AI_MESSAGE_CREDITS, estimateUsd, result, false)
+    return res.status(422).json(result.stopReason === 'refusal'
+      ? { code: 'refused', error: 'The assistant declined to answer that. Try asking in a different way. Your credits were returned.' }
+      : { code: 'cut_off', error: 'The reply came out empty. Try a shorter question. Your credits were returned.' })
+  }
+  endAiCall(address, w, 'message', AI_MESSAGE_CREDITS, estimateUsd, result, true)
+  res.json({ reply: result.text, truncated: result.stopReason === 'max_tokens', balance: w.balance, today: aiToday(w) })
 })
 
 app.get('/api/wallets', (req, res) => {

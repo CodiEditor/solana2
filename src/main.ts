@@ -2,6 +2,8 @@ import './style.css'
 import { apiFetch } from './api'
 import { storage } from './storage'
 import { miner, minerLog, wallet, startMining, stopMining, setIntensity, onMinerTick, onBalanceChange, onNotice, onWalletsChange, listWallets, connectWallet, disconnectWallet, refreshBalance } from './store'
+import { assistantBody, bindAssistant } from './assistant'
+import { esc } from './html'
 import type { AppId, Wallpaper, WindowInfo, LeaderRow, LogLine } from './types'
 
 // ---------- State ----------
@@ -30,6 +32,7 @@ function applyWallpaper(w: Wallpaper){
 
 const APPS: Record<AppId, { title:string; icon:string }> = {
   miner:{title:'miner.exe', icon:'⛏️'},
+  assistant:{title:'assistant.exe', icon:'🤖'},
   wallet:{title:'wallet.exe', icon:'👛'},
   leaderboard:{title:'leaderboard', icon:'🏆'},
   readme:{title:'readme.txt', icon:'📄'},
@@ -38,7 +41,6 @@ const APPS: Record<AppId, { title:string; icon:string }> = {
 
 const $ = <T extends HTMLElement>(s:string)=> document.querySelector(s) as T | null
 const el = (h:string)=>{ const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstElementChild as HTMLElement }
-const esc = (s:string)=> s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
 const shortAddr = (a:string)=> a.slice(0,4)+'…'+a.slice(-4)
 
 function toast(msg:string, kind:'success'|'info'|'error'='info'){
@@ -52,8 +54,9 @@ function toast(msg:string, kind:'success'|'info'|'error'='info'){
 function shellHTML(){
   const BLURB:Record<string,string>={
     'miner':'mine credits in this tab',
+    'assistant':'spend credits on your own assistant',
     'wallet':'connect or disconnect',
-    'leaderboard':'top wallets by credits',
+    'leaderboard':'top wallets by shares',
     'readme':'how AetherOS works',
     'settings':'wallpaper'
   }
@@ -67,7 +70,7 @@ function shellHTML(){
   </div>
   <div class="desktop-branding">
     <div class="pixel-logo-text">AetherOS</div>
-    <div class="pixel-tagline">MINE CREDITS IN YOUR BROWSER<br/>SIGN IN WITH A SOLANA WALLET</div>
+    <div class="pixel-tagline">MINE CREDITS IN YOUR BROWSER<br/>SPEND THEM ON YOUR OWN ASSISTANT</div>
     <div class="brand-stats">
       <div class="brand-pill"><span class="dot"></span> <b id="brand-hash">0 H/s</b> hashrate</div>
       <div class="brand-pill">credits <b id="brand-credits">${miner.balance.toFixed(4)}</b></div>
@@ -249,6 +252,7 @@ function syncZ(){
 }
 
 let delegationBound=false
+let shownWindows=new Set<string>()
 
 function renderWindows(){
   const cont = $('#windows-container')!
@@ -313,6 +317,18 @@ function renderWindows(){
     })
   })
 
+  // Windows are rebuilt on every change, so keep what the visitor was doing: the focused field with
+  // its cursor, and how far each window was scrolled.
+  const act = document.activeElement as (HTMLInputElement | HTMLTextAreaElement | null)
+  const keepFocus = act && act.id && cont.contains(act)
+    ? { id: act.id, start: act.selectionStart, end: act.selectionEnd, scroll: act.scrollTop }
+    : null
+  const keepScroll = new Map<string, number>()
+  cont.querySelectorAll<HTMLElement>('[data-win-id]').forEach(e=>{
+    const body=e.querySelector<HTMLElement>('.window-body')
+    if(body && body.scrollTop) keepScroll.set(e.dataset.winId!, body.scrollTop)
+  })
+
   // remove old windows and recreate visible ones
   // keep container listeners, so only clear window elements
   cont.querySelectorAll('[data-win-id]').forEach(e=>e.remove())
@@ -321,7 +337,8 @@ function renderWindows(){
     if(w.minimized) continue
     const isMax=w.maximized
     const wrap=document.createElement('div')
-    wrap.className=`window ${isMax?'maximized':''} ${activeId===w.id?'active-win':''}`
+    // The open animation plays once, when a window appears, not on every rebuild.
+    wrap.className=`window ${isMax?'maximized':''} ${activeId===w.id?'active-win':''} ${shownWindows.has(w.id)?'no-pop':''}`
     wrap.style.left=w.x+'px'
     wrap.style.top=w.y+'px'
     wrap.style.width=w.w+'px'
@@ -342,11 +359,22 @@ function renderWindows(){
       <div class="window-body">${appBody(w.appId)}</div>
     `
     cont.appendChild(wrap)
+    const top=keepScroll.get(w.id)
+    if(top){ const body=wrap.querySelector<HTMLElement>('.window-body'); if(body) body.scrollTop=top }
   }
 
+  shownWindows = new Set(windows.filter(w=>!w.minimized).map(w=>w.id))
   enableDrag()
   bindAppEvents()
   refreshTray()
+  if(keepFocus){
+    const n=document.getElementById(keepFocus.id) as (HTMLInputElement | HTMLTextAreaElement | null)
+    if(n && !n.hasAttribute('disabled')){
+      n.focus({preventScroll:true})
+      try{ if(keepFocus.start!==null) n.setSelectionRange(keepFocus.start, keepFocus.end) }catch{ /* not a text field */ }
+      n.scrollTop=keepFocus.scroll
+    }
+  }
 }
 
 function enableDrag(){
@@ -500,10 +528,11 @@ function leaderboardTable(): string {
 
 function appBody(id: AppId): string {
   if (id === 'miner') return minerBody()
+  if (id === 'assistant') return assistantBody()
   if (id === 'wallet') return walletBody()
   if (id === 'leaderboard') return `
     <div class="app-content">
-      <div class="ck-row" style="margin-bottom:8px"><span class="ck-hint">Top wallets by credits</span><button class="ck-btn ck-btn--ghost ck-btn--sm" id="btn-refresh-lb" style="margin-left:auto">↻ Refresh</button></div>
+      <div class="ck-row" style="margin-bottom:8px"><span class="ck-hint">Top wallets by shares mined</span><button class="ck-btn ck-btn--ghost ck-btn--sm" id="btn-refresh-lb" style="margin-left:auto">↻ Refresh</button></div>
       <div class="lb-table lb4" id="lb-table">${leaderboardTable()}</div>
     </div>`
   if (id === 'readme') return `
@@ -515,7 +544,8 @@ function appBody(id: AppId): string {
       <pre class="readme-pre">AetherOS
 ========
 
-Mine credits in your browser and see where you rank.
+Mine credits in your browser, then spend them on an assistant
+that learns from your own text.
 
 HOW IT WORKS
 
@@ -531,28 +561,46 @@ HOW IT WORKS
    wallet and the wait between shares are set by the server and
    shown in miner.exe.
 
-4. leaderboard ranks wallets by credits.
+4. Spend credits in assistant.exe. In TEACH, upload a text file
+   or paste text. Claude, a model by Anthropic, reads it once and
+   writes a profile of its voice and knowledge. In CHAT, your
+   assistant answers from that profile. Prices, the daily limits
+   and your balance are shown in the window.
+
+5. leaderboard ranks wallets by shares mined, so spending credits
+   never costs you a place.
 
 THE APPS
 
-miner.exe     start and stop mining
-wallet.exe    connect or disconnect your wallet
-leaderboard   top wallets by credits
-settings      wallpaper
-readme.txt    this file
+miner.exe      start and stop mining
+assistant.exe  teach and chat with your own assistant
+wallet.exe     connect or disconnect your wallet
+leaderboard    top wallets by shares
+settings       wallpaper
+readme.txt     this file
+
+WHO CAN USE THE ASSISTANT
+
+A wallet can use it 24 hours after its first sign-in here, and
+while it holds at least 0.01 SOL on Solana. The SOL is only
+checked, never spent. Credits are taken when you send and are
+returned if the assistant cannot answer.
 
 GOOD TO KNOW
 
-Credits are a score kept by this site. They are not a token and
-cannot be exchanged.
+Credits are kept by this site. They pay for the assistant and
+cannot be bought, sold or exchanged for money. They are not a
+token.
 Mining stops when you close the tab.
 The full rules are on the Terms page and the data we keep is on
 the Privacy page. Both are linked from the start menu.
 
 WHAT THE SERVER STORES
 
-Your wallet address, your credit balance and your accepted shares.
-Nothing else about you or your computer is sent.</pre>
+Your wallet address, your credit balance, your accepted shares
+and, if you build one, your assistant's profile. The text you
+upload and your chat messages pass through to Anthropic and are
+not stored here.</pre>
     </div>`
   return `
     <div class="app-content">
@@ -560,7 +608,7 @@ Nothing else about you or your computer is sent.</pre>
         <div class="settings-section"><div class="ss-title">WALLPAPER (Pick a theme)</div><div class="wallpaper-options">
           ${(['aurora', 'dusk', 'night', 'neon'] as Wallpaper[]).map(w => `<div class="wp-opt ${wallpaper === w ? 'active' : ''}" data-wp="${w}" role="button" tabindex="0" aria-label="Wallpaper ${w}"><div class="wp-swatch"></div><div class="wp-label">${w}${wallpaper === w ? ' ✓' : ''}</div></div>`).join('')}
         </div></div>
-        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◆ AetherOS</div><div class="about-ver">v1.0.0</div><div class="about-desc">Mine credits in your browser with a Solana wallet.</div><div class="about-links"><a class="about-link" href="./terms.html" target="_blank" rel="noopener noreferrer">Terms</a><a class="about-link" href="./privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></div></div></div>
+        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◆ AetherOS</div><div class="about-ver">v1.0.0</div><div class="about-desc">Mine credits in your browser with a Solana wallet and spend them on your own assistant.</div><div class="about-links"><a class="about-link" href="./terms.html" target="_blank" rel="noopener noreferrer">Terms</a><a class="about-link" href="./privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></div></div></div>
       </div>
     </div>`
 }
@@ -591,17 +639,21 @@ async function doConnect(name: string) {
   renderWindows()
 }
 
+// One wallet in the browser connects straight away; more than one opens the picker.
+function openWalletFlow(){
+  const list = listWallets()
+  if(list.length === 1){ void doConnect(list[0].name); return }
+  openApp('wallet'); renderWindows()
+}
+
 function bindAppEvents(){
   $('#btn-mining')?.addEventListener('click', ()=>{
     if(miner.running){ stopMining(); toast('Mining stopped','info') }
     else { void startMining() }
     renderWindows()
   })
-  $('#btn-open-wallet')?.addEventListener('click', ()=>{
-    const list = listWallets()
-    if(list.length === 1){ void doConnect(list[0].name); return }
-    openApp('wallet'); renderWindows()
-  })
+  $('#btn-open-wallet')?.addEventListener('click', openWalletFlow)
+  bindAssistant({ rerender: renderWindows, toast, connect: openWalletFlow })
   document.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=> void doConnect((b as HTMLElement).dataset.connect!)))
   $('#btn-disconnect')?.addEventListener('click', async()=>{ await disconnectWallet(); toast('Disconnected','info'); renderWindows() })
   $('#intensity')?.addEventListener('input',(e)=>{
@@ -650,7 +702,7 @@ onMinerTick((m, uptime)=>{
 onBalanceChange(()=>{
   refreshTray()
   // keep the open windows in step with wallet and balance changes
-  if(windows.some(w=>w.appId==='wallet' || w.appId==='miner')) renderWindows()
+  if(windows.some(w=>w.appId==='wallet' || w.appId==='miner' || w.appId==='assistant')) renderWindows()
 })
 onNotice((line)=>{
   const log=document.getElementById('miner-log')

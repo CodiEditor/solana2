@@ -136,10 +136,17 @@ export async function disconnectWallet() {
   try { await (w?.features['standard:disconnect'] as any)?.disconnect?.() } catch { /* wallet refused */ }
 }
 
-function sessionLost(message: string) {
+export function sessionLost(message: string) {
   stopMining()
   clearSession()
   log(message, 'error')
+}
+
+// The assistant spends credits, so its replies carry the new balance.
+export function setBalance(balance: number) {
+  if (!Number.isFinite(balance)) return
+  miner.balance = balance
+  balanceCb?.()
 }
 
 export async function refreshBalance() {
