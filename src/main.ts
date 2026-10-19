@@ -225,7 +225,13 @@ function doReboot(){
   setTimeout(()=> openApp('miner'), 120)
 }
 const isPhone=()=> window.matchMedia('(max-width:760px)').matches
-const haptic=(ms:number=18)=> { try{ (navigator as any).vibrate?.(ms) }catch{} }
+// Browsers refuse to vibrate before the first tap and log an error each time, so wait for a gesture.
+const haptic=(ms:number=18)=> {
+  try{
+    if((navigator as any).userActivation && !(navigator as any).userActivation.hasBeenActive) return
+    ;(navigator as any).vibrate?.(ms)
+  }catch{}
+}
 
 function syncZ(){
   document.querySelectorAll<HTMLElement>('[data-win-id]').forEach(el=>{

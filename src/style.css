@@ -1,9 +1,9 @@
 /* AetherOS theme */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Pixelify+Sans:wght@400;600;700&family=Silkscreen&display=swap');
 :root{
-  --ink:#3b1240;--ink2:#6a3a73;--inkSoft:rgba(59,18,64,.55);
+  --ink:#3b1240;--ink2:#6a3a73;--inkSoft:rgba(59,18,64,.72);
   --paper:#fff8fc;--paper2:#fdeef7;--line:rgba(59,18,64,.14);
-  --pink:#ff6fb1;--pinkDeep:#d63d86;--pinkSoft:#ffd3e8;--lilac:#c3a2ff;--sky:#8ccfff;--skyDeep:#4a96e8;--ice:#dff3ff;--mint:#7fe8b0;--amber:#ffe07a;
+  --pink:#ff6fb1;--pinkDeep:#c22d77;--pinkSoft:#ffd3e8;--lilac:#c3a2ff;--sky:#8ccfff;--skyDeep:#4a96e8;--ice:#dff3ff;--mint:#7fe8b0;--amber:#ffe07a;
   --term:#1c0b26;--term2:#2a1236;--termFg:#f7d9ea;--termDim:#a281ad;
   --title: linear-gradient(90deg,#ff7ab8 0%,#d9a0ff 52%,#8fd3ff 100%);
   --wall: linear-gradient(165deg,#ff8cc6 0%,#ffb3da 24%,#ecc4ff 52%,#b9e0ff 80%,#e2f4ff 100%);
@@ -68,7 +68,7 @@ body.has-maximized .desktop-branding{opacity:0}
 .win-controls{margin-left:auto;display:flex;gap:5px;position:relative}
 .win-btn{width:22px;height:20px;border:2px solid var(--ink);border-radius:6px;background:var(--paper);display:grid;place-items:center;padding:0;box-shadow:2px 2px 0 rgba(59,18,64,.35);cursor:pointer;font-size:11px;color:var(--ink);line-height:1}
 .win-btn:active{transform:translate(1px,1px);box-shadow:none}
-.win-btn.close{background:var(--pink)!important;color:#fff}
+.win-btn.close{background:var(--pink)!important;color:var(--ink)}
 .window-body{flex:1;overflow:auto;position:relative;min-height:0;background:var(--paper)}
 .window.maximized .window-body{overflow-y:auto}
 @keyframes pop{from{transform:scale(.92);opacity:0}}
@@ -462,7 +462,7 @@ body.has-maximized .desktop-branding{opacity:0}
 .ck-input--sm{width:90px}
 .ck-btn{height:34px;padding:0 14px;border:2px solid var(--ink);border-radius:9px;background:#fff;font:400 11px var(--pixel);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
 .ck-btn--go{background:var(--mint)}
-.ck-btn--stop{background:var(--pink);color:#fff}
+.ck-btn--stop{background:var(--pink);color:var(--ink)}
 .ck-btn--ghost{background:var(--paper2)}
 .ck-btn--sm{height:28px;padding:0 10px;font-size:10px}
 .ck-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -491,7 +491,7 @@ body.has-maximized .desktop-branding{opacity:0}
 .ck-link{text-decoration:none;color:inherit}
 .ck-link:hover{transform:translateY(-1px);box-shadow:3px 3px 0 rgba(59,18,64,.15)}
 .ck-pre{white-space:pre-wrap;word-break:break-word;font:11px var(--mono);max-height:140px;overflow:auto;background:var(--paper2);border:1px solid var(--line);border-radius:8px;padding:8px}
-.ck-icon{width:44px;height:44px;display:grid;place-items:center;margin:0 auto;background:var(--title);border:2px solid var(--ink);border-radius:10px;color:#fff;font-size:20px}
+.ck-icon{width:44px;height:44px;display:grid;place-items:center;margin:0 auto;background:var(--title);border:2px solid var(--ink);border-radius:10px;color:var(--ink);font-size:20px}
 .ck-title{font:700 16px var(--display)}
 .ck-desc{font:11px var(--mono);color:var(--inkSoft);margin:4px 0}
 .ck-status{margin:8px 0;padding:8px;background:var(--paper2);border:2px solid var(--ink);border-radius:9px;font:11px var(--mono)}
@@ -536,3 +536,6 @@ body.has-maximized .desktop-branding{opacity:0}
 .brand-legal{margin-top:10px;display:flex;gap:8px;justify-content:center;font:500 11px var(--mono);pointer-events:auto}
 .brand-legal a{color:var(--ink);text-underline-offset:3px}
 .about-links{display:flex;gap:12px;justify-content:center;margin-top:8px}
+
+/* Credits values on light surfaces use a deeper blue; the dark miner terminal keeps the light one. */
+.app-content .t-sol,.cherry-app .ck-card:not(.ck-terminal) .t-sol,.lb-table .t-sol{color:#1f6bc4!important}

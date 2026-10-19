@@ -45,6 +45,7 @@ npm run dev       # frontend on http://localhost:5173, proxies /api to the API
 
 - Frontend: Vercel (`npm run build`, output `dist`). `vercel.json` rewrites `/api/*` to the backend and sets the security headers.
 - Backend: Railway from the `Dockerfile` (Node 24 Alpine, `NODE_ENV=production`). Add a volume mounted at `/data`.
+- Share cards: `public/og.png` is the 1200 x 630 share image. Social crawlers need an absolute URL, so the build fills `og:url` and `og:image` from `SITE_URL`, or from Vercel's `VERCEL_PROJECT_PRODUCTION_URL` when that is set. With neither, those tags are left out.
 
 ## Notes
 
