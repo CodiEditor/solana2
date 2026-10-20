@@ -1,4 +1,12 @@
 {
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "(?<deployment>.+)\\.vercel\\.app" }],
+      "destination": "https://aetheros.lumoracle.io/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://solana2-production.up.railway.app/api/$1" }
   ],
