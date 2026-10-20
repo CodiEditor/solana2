@@ -1,368 +1,315 @@
-import type { MinerState, Network, WalletState } from './types'
-import { apiFetch, setAuthToken, clearAuthToken } from './api'
+import { getWallets } from '@wallet-standard/app'
+import type { Wallet, WalletAccount } from '@wallet-standard/base'
 import bs58 from 'bs58'
+import type { LogLine, MinerState, WalletState } from './types'
+import { apiFetch, ApiError, isAuthError, setAuthToken, clearAuthToken, getAuthToken } from './api'
+import { storage } from './storage'
 
-const LS_WALLET='aetheros:wallet'
-const LS_WALLET_SOL='aetheros:sol'
-const LS_WALLET_PROVIDER='aetheros:provider'
-const LS_WALLET_CHAIN='aetheros:chain'
+const LS_WALLET = 'aetheros:wallet'
+const LS_WALLET_NAME = 'aetheros:walletName'
 
-// Vite env
-const ENV_NETWORK = (import.meta.env.VITE_SOLANA_NETWORK as Network | undefined) ?? 'devnet'
-const ENV_RPC = import.meta.env.VITE_SOLANA_RPC as string | undefined
+// Keys written by earlier versions of the app.
+;['aetheros:sol', 'aetheros:provider', 'aetheros:chain', 'aetheros:network', 'aetheros:token',
+  'solanaos:datasets', 'solanaos:models', 'solanaos:jobs', 'solanaos:seen'].forEach(k => storage.remove(k))
 
 export const wallet: WalletState = {
-  address: localStorage.getItem(LS_WALLET),
-  sol: Number(localStorage.getItem(LS_WALLET_SOL) ?? '0'),
-  solana: Number(localStorage.getItem(LS_WALLET_SOL) ?? '0'),
-  network: (localStorage.getItem('aetheros:network') as Network) ?? ENV_NETWORK,
-  provider: (localStorage.getItem(LS_WALLET_PROVIDER) as WalletState['provider']) ?? null,
-  chain: 'solana',
+  address: storage.get(LS_WALLET),
+  walletName: storage.get(LS_WALLET_NAME),
 }
 
 export const miner: MinerState = {
-  running:false,
-  intensity:75,
-  hashrate:0,
-  shares:0,
-  accepted:0,
+  running: false,
+  waiting: false,
+  intensity: 75,
+  hashrate: 0,
+  found: 0,
+  accepted: 0,
+  rejected: 0,
   session: 0,
   balance: 0,
-  difficulty: 3
+  creditsPerShare: null,
+  dailyEarned: 0,
+  dailyCap: null,
 }
 
-let cachedGpu: string | null = null
-export function getGpuRenderer(): string {
-  if(cachedGpu) return cachedGpu
-  try{
-    const c=document.createElement('canvas')
-    const gl=(c.getContext('webgl')||c.getContext('experimental-webgl')) as WebGLRenderingContext|null
-    if(!gl){ cachedGpu='Browser Miner'; return cachedGpu }
-    const ext=gl.getExtension('WEBGL_debug_renderer_info') as any
-    if(ext){
-      const raw=gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) as string
-      let s=raw.replace(/^ANGLE \(/,'').replace(/\)$/,'').trim()
-      if(s.includes(',')) s=s.split(',').pop()!.trim()
-      s=s.replace(/Direct3D11 vs_.*ps_.*/,'').trim()
-      if(s.length>40) s=s.slice(0,40)
-      cachedGpu=s||'WebGL GPU'
-    } else {
-      cachedGpu='WebGL GPU'
-    }
-  }catch{ cachedGpu='Browser Miner' }
-  return cachedGpu
+export const minerLog: LogLine[] = []
+
+let tickCb: ((m: MinerState, uptime: string) => void) | null = null
+let balanceCb: (() => void) | null = null
+let noticeCb: ((line: LogLine) => void) | null = null
+let walletsCb: (() => void) | null = null
+export const onMinerTick = (cb: (m: MinerState, uptime: string) => void) => { tickCb = cb }
+export const onBalanceChange = (cb: () => void) => { balanceCb = cb }
+export const onNotice = (cb: (line: LogLine) => void) => { noticeCb = cb }
+export const onWalletsChange = (cb: () => void) => { walletsCb = cb }
+
+function log(text: string, kind: LogLine['kind'] = 'info') {
+  const line = { at: Date.now(), text, kind }
+  minerLog.push(line)
+  if (minerLog.length > 60) minerLog.shift()
+  noticeCb?.(line)
 }
 
-let minerTimer:number|undefined
-let hashTimer:number|undefined
-let uptimeSec=0
-let hashCallback: ((m:MinerState, uptime:string)=>void) | null = null
-let balanceCallback: (()=>void)|null=null
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const fmtUptime = (s: number) =>
+  [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map(n => String(n).padStart(2, '0')).join(':')
 
-function fmtUptime(s:number){
-  const h=String(Math.floor(s/3600)).padStart(2,'0')
-  const m=String(Math.floor((s%3600)/60)).padStart(2,'0')
-  const sec=String(s%60).padStart(2,'0')
-  return `${h}:${m}:${sec}`
+// ---------- Wallets (Wallet Standard) ----------
+// Wallets announce themselves, so names and icons come from the wallet and no vendor is hard-coded.
+const registry = getWallets()
+registry.on('register', () => walletsCb?.())
+registry.on('unregister', () => walletsCb?.())
+
+const canSignIn = (w: Wallet) => 'standard:connect' in w.features && 'solana:signMessage' in w.features
+
+export function listWallets(): { name: string; icon: string }[] {
+  const seen = new Set<string>()
+  return registry.get().filter(canSignIn).filter(w => !seen.has(w.name) && !!seen.add(w.name))
+    .map(w => ({ name: w.name, icon: w.icon }))
 }
 
-export function onMinerTick(cb:(m:MinerState, uptime:string)=>void){ hashCallback=cb }
-export function onBalanceChange(cb:()=>void){ balanceCallback=cb }
+let stopWatchingAccount: (() => void) | null = null
 
-// Mining worker
-let miningWorker: Worker | null = null
-let currentChallenge: any = null
-let isSubmittingProof = false
-let lastSuccessfulProofAt = 0
+export async function connectWallet(name: string): Promise<string> {
+  const w = registry.get().find(x => x.name === name && canSignIn(x))
+  if (!w) throw new Error('That wallet is no longer available. Reload the page and try again.')
 
-async function fetchChallenge(address: string, retries = 3, delay = 1000): Promise<any> {
+  const connect = (w.features['standard:connect'] as any).connect as () => Promise<{ accounts: readonly WalletAccount[] }>
+  const { accounts } = await connect()
+  const account = accounts.find(a => a.chains.some(c => c.startsWith('solana:'))) ?? accounts[0]
+  if (!account) throw new Error('The wallet did not share an account.')
+  const address = account.address
+
+  // Sign the exact message the server issued. No transaction is sent.
+  const { message } = await apiFetch(`/auth/nonce?address=${encodeURIComponent(address)}`)
+  const signMessage = (w.features['solana:signMessage'] as any).signMessage as
+    (...inputs: { account: WalletAccount; message: Uint8Array }[]) => Promise<{ signature: Uint8Array }[]>
+  const [{ signature }] = await signMessage({ account, message: new TextEncoder().encode(message) })
+  const { token } = await apiFetch('/auth/verify', {
+    method: 'POST',
+    body: JSON.stringify({ address, signature: bs58.encode(signature) }),
+  })
+  setAuthToken(token)
+
+  wallet.address = address
+  wallet.walletName = w.name
+  storage.set(LS_WALLET, address)
+  storage.set(LS_WALLET_NAME, w.name)
+
+  stopWatchingAccount?.()
+  const events = w.features['standard:events'] as any
+  stopWatchingAccount = events?.on?.('change', (p: { accounts?: readonly WalletAccount[] }) => {
+    const next = p.accounts?.[0]?.address
+    if (next && next !== wallet.address) sessionLost('The wallet switched accounts. Connect again to continue.')
+  }) ?? null
+
+  await apiFetch('/wallet/connect', { method: 'POST', body: JSON.stringify({ address }) })
+  await refreshBalance()
+  return address
+}
+
+function clearSession() {
+  stopWatchingAccount?.()
+  stopWatchingAccount = null
+  wallet.address = null
+  wallet.walletName = null
+  miner.balance = 0
+  miner.session = 0
+  miner.found = 0
+  miner.accepted = 0
+  miner.rejected = 0
+  miner.dailyEarned = 0
+  miner.dailyCap = null
+  minerLog.length = 0
+  clearAuthToken()
+  storage.remove(LS_WALLET)
+  storage.remove(LS_WALLET_NAME)
+  balanceCb?.()
+}
+
+export async function disconnectWallet() {
+  stopMining()
+  const name = wallet.walletName
+  clearSession()
+  const w = name ? registry.get().find(x => x.name === name) : undefined
+  try { await (w?.features['standard:disconnect'] as any)?.disconnect?.() } catch { /* wallet refused */ }
+}
+
+export function sessionLost(message: string) {
+  stopMining()
+  clearSession()
+  log(message, 'error')
+}
+
+// The assistant spends credits, so its replies carry the new balance.
+export function setBalance(balance: number) {
+  if (!Number.isFinite(balance)) return
+  miner.balance = balance
+  balanceCb?.()
+}
+
+export async function refreshBalance() {
+  if (!wallet.address) return
   try {
-    const response = await apiFetch(`/mining/challenge?address=${encodeURIComponent(address)}`)
-    return response
-  } catch (e: any) {
-    if (retries > 0 && (e?.message?.includes('429') || e?.message?.includes('500') || e?.message?.includes('Failed to fetch'))) {
-      console.warn(`⚠️ Fetch challenge failed (${e.message}), retrying in ${delay}ms... (${retries} left)`)
-      await new Promise(r => setTimeout(r, delay))
-      return fetchChallenge(address, retries - 1, delay * 2)
-    }
-    console.error('Failed to fetch challenge:', e)
-    return null
-  }
+    const d = await apiFetch(`/wallet/${encodeURIComponent(wallet.address)}`)
+    miner.balance = d.balance ?? 0
+    miner.creditsPerShare = d.creditsPerShare ?? miner.creditsPerShare
+    miner.dailyEarned = d.dailyEarned ?? 0
+    miner.dailyCap = d.dailyCap ?? miner.dailyCap
+  } catch { /* balance stays as it was */ }
+  balanceCb?.()
 }
 
-async function submitProof(address: string, nonce: number, hash: string, challenge: string, hw: string) {
+// ---------- Mining ----------
+let worker: Worker | null = null
+let runId = 0
+let uptimeSec = 0
+let uptimeTimer: number | undefined
+let submitting = false
+let lastAcceptedAt = 0
+let cooldownMs = 10_000
+
+const isDailyLimit = (e: unknown) => e instanceof ApiError && e.status === 429 && !!e.body?.dailyLimit
+
+function dailyLimitReached() {
+  if (miner.dailyCap !== null) miner.dailyEarned = miner.dailyCap
+  stopMining()
+  log('Daily limit reached. Mining resumes at 00:00 UTC.', 'error')
+}
+
+async function requestChallenge(id: number, attempt = 0): Promise<boolean> {
+  if (id !== runId || !worker) return false
   try {
-    const response = await apiFetch('/mining/submit', {
-      method: 'POST',
-      body: JSON.stringify({ address, nonce, hash, challenge, hw })
-    })
-    return response
+    const c = await apiFetch(`/mining/challenge?address=${encodeURIComponent(wallet.address!)}`)
+    if (id !== runId || !worker) return false
+    miner.creditsPerShare = c.creditsPerShare ?? miner.creditsPerShare
+    cooldownMs = c.cooldownMs ?? cooldownMs
+    miner.dailyEarned = c.dailyEarned ?? miner.dailyEarned
+    miner.dailyCap = c.dailyCap ?? miner.dailyCap
+    miner.waiting = false
+    worker.postMessage({ type: 'start', challenge: c.challenge, difficulty: c.difficulty, target: c.target, intensity: miner.intensity })
+    return true
   } catch (e) {
-    console.error('Failed to submit proof:', e)
-    return null
+    if (isAuthError(e)) { sessionLost('Your session expired. Connect your wallet again.'); return false }
+    if (isDailyLimit(e)) { dailyLimitReached(); return false }
+    const retryable = !(e instanceof ApiError) || [429, 500, 502, 503, 504].includes(e.status)
+    if (retryable && attempt < 3) {
+      const wait = 1000 * 2 ** attempt
+      log(`Server busy. Retrying in ${wait / 1000}s.`)
+      await sleep(wait)
+      return requestChallenge(id, attempt + 1)
+    }
+    log(`Could not get a challenge: ${errText(e)}`, 'error')
+    return false
   }
 }
 
-export async function startMining(){
-  if(miner.running) return
-  if(!wallet.address) {
-    console.warn('No wallet connected, cannot mine')
+async function submitProof(msg: { nonce: number; hash: string; challenge: string }, id: number) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await apiFetch('/mining/submit', {
+        method: 'POST',
+        body: JSON.stringify({ address: wallet.address, nonce: msg.nonce, hash: msg.hash, challenge: msg.challenge }),
+      })
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 429 && attempt === 0 && !isDailyLimit(e)) {
+        const wait = Math.min(Number(e.body?.retryAfterMs) || cooldownMs, 30_000)
+        log(`Too fast. Waiting ${Math.ceil(wait / 1000)}s before submitting.`)
+        miner.waiting = true
+        tickCb?.(miner, fmtUptime(uptimeSec))
+        await sleep(wait + 250)
+        if (id !== runId) return null
+        continue
+      }
+      throw e
+    }
+  }
+  return null
+}
+
+async function onProof(msg: { nonce: number; hash: string; challenge: string; attempts: number }, id: number) {
+  if (submitting) return
+  submitting = true
+  miner.found++
+  log(`Share found after ${msg.attempts.toLocaleString()} hashes.`)
+  try {
+    const res = await submitProof(msg, id)
+    if (id !== runId) return
+    if (res?.success) {
+      miner.accepted++
+      miner.balance = res.credits
+      miner.session += res.creditsEarned
+      miner.dailyEarned = res.dailyEarned ?? miner.dailyEarned
+      miner.dailyCap = res.dailyCap ?? miner.dailyCap
+      lastAcceptedAt = Date.now()
+      log(`Accepted. +${Number(res.creditsEarned).toFixed(4)} cr`, 'ok')
+      balanceCb?.()
+    }
+  } catch (e) {
+    if (isAuthError(e)) { sessionLost('Your session expired. Connect your wallet again.'); return }
+    if (isDailyLimit(e)) { dailyLimitReached(); return }
+    miner.rejected++
+    log(`Rejected: ${errText(e)}`, 'error')
+  } finally {
+    submitting = false
+  }
+
+  if (!miner.running || id !== runId) return
+  const wait = cooldownMs - (Date.now() - lastAcceptedAt)
+  if (wait > 0) {
+    log(`Next share in ${Math.ceil(wait / 1000)}s.`)
+    miner.waiting = true
+    tickCb?.(miner, fmtUptime(uptimeSec))
+    await sleep(wait)
+  }
+  if (!miner.running || id !== runId) return
+  if (!(await requestChallenge(id))) stopMining()
+}
+
+export async function startMining() {
+  if (miner.running) return
+  if (!wallet.address || !getAuthToken()) {
+    log('Connect your wallet to start mining.', 'error')
     return
   }
-  
-  miner.running=true
-  uptimeSec=0
-  const hw = getGpuRenderer()
-  
-  minerTimer = window.setInterval(()=>{ 
-    uptimeSec++
-    hashCallback?.(miner, fmtUptime(uptimeSec)) 
-  }, 1000)
-  
-  miningWorker = new Worker(new URL('./workers/miner.worker.ts', import.meta.url), { type: 'module' })
-  
-  miningWorker.onmessage = async (e) => {
+  const id = ++runId
+  miner.running = true
+  miner.hashrate = 0
+  uptimeSec = 0
+  uptimeTimer = window.setInterval(() => { uptimeSec++; tickCb?.(miner, fmtUptime(uptimeSec)) }, 1000)
+
+  worker = new Worker(new URL('./workers/miner.worker.ts', import.meta.url), { type: 'module' })
+  worker.onmessage = (e) => {
+    if (id !== runId) return
     if (e.data.type === 'stats') {
       miner.hashrate = e.data.hashrate
-      hashCallback?.(miner, fmtUptime(uptimeSec))
+      tickCb?.(miner, fmtUptime(uptimeSec))
     } else if (e.data.type === 'proof') {
-      if (isSubmittingProof) {
-        console.log('⏸️ Proof already being processed, ignoring new proof')
-        return
-      }
-      
-      isSubmittingProof = true
-      
-      try {
-        const result = await submitProof(wallet.address!, e.data.nonce, e.data.hash, e.data.challenge, hw)
-        
-        if (result?.success) {
-          miner.accepted++
-          miner.shares++
-          miner.balance = result.credits
-          lastSuccessfulProofAt = Date.now()
-          console.log(`✅ Proof accepted: +${result.creditsEarned.toFixed(4)} credits`)
-          balanceCallback?.()
-        } else if (result?.error?.includes?.('Too fast') || result?.retryAfterMs) {
-          const waitMs = result.retryAfterMs || 10000
-          console.log(`⏳ Rate limited, waiting ${waitMs}ms before retry...`)
-          await new Promise(r => setTimeout(r, waitMs))
-          
-          if (miner.running && wallet.address && miningWorker) {
-            const retryResult = await submitProof(wallet.address!, e.data.nonce, e.data.hash, e.data.challenge, hw)
-            if (retryResult?.success) {
-              miner.accepted++
-              miner.shares++
-              miner.balance = retryResult.credits
-              console.log(`✅ Proof accepted (retry): +${retryResult.creditsEarned.toFixed(4)} credits`)
-              balanceCallback?.()
-            } else {
-              console.warn('❌ Proof rejected (retry):', retryResult?.error)
-            }
-          }
-        } else {
-          console.warn('❌ Proof rejected:', result?.error)
-        }
-      } finally {
-        isSubmittingProof = false
-      }
-      
-      if (miner.running && wallet.address) {
-        const timeSinceLastProof = Date.now() - lastSuccessfulProofAt
-        const cooldownMs = 10000
-        if (timeSinceLastProof < cooldownMs) {
-          const waitMs = cooldownMs - timeSinceLastProof
-          console.log(`⏳ Client cooldown: waiting ${waitMs}ms before new challenge...`)
-          await new Promise(r => setTimeout(r, waitMs))
-        }
-        
-        currentChallenge = await fetchChallenge(wallet.address)
-        if (currentChallenge && miningWorker) {
-          miningWorker.postMessage({
-            type: 'start',
-            challenge: currentChallenge.challenge,
-            difficulty: currentChallenge.difficulty,
-            target: currentChallenge.target
-          })
-        }
-      }
+      void onProof(e.data, id)
     }
   }
-  
-  miningWorker.onerror = (error) => {
-    console.error('Mining worker error:', error)
-  }
-  
-  currentChallenge = await fetchChallenge(wallet.address)
-  if (currentChallenge && miningWorker) {
-    miningWorker.postMessage({
-      type: 'start',
-      challenge: currentChallenge.challenge,
-      difficulty: currentChallenge.difficulty,
-      target: currentChallenge.target
-    })
-  } else {
-    console.error('Failed to get initial challenge')
-    stopMining()
-  }
+  worker.onerror = (ev) => { log(`Mining worker error: ${ev.message}`, 'error'); stopMining() }
+
+  log('Mining started.')
+  if (!(await requestChallenge(id))) stopMining()
 }
 
-export function stopMining(){
-  miner.running=false
-  miner.hashrate=0
-  
-  if(miningWorker) {
-    miningWorker.postMessage({ type: 'stop' })
-    miningWorker.terminate()
-    miningWorker = null
-  }
-  
-  if(hashTimer) clearInterval(hashTimer)
-  if(minerTimer) clearInterval(minerTimer)
-  
-  hashCallback?.(miner, fmtUptime(uptimeSec))
-  balanceCallback?.()
+export function stopMining() {
+  const wasRunning = miner.running
+  runId++
+  miner.running = false
+  miner.waiting = false
+  miner.hashrate = 0
+  submitting = false
+  if (worker) { worker.postMessage({ type: 'stop' }); worker.terminate(); worker = null }
+  if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = undefined }
+  if (wasRunning) log('Mining stopped.')
+  tickCb?.(miner, fmtUptime(uptimeSec))
+  balanceCb?.()
 }
 
-export function setIntensity(v:number){ miner.intensity=v }
-
-export function walletBalanceString(){ return `${wallet.sol.toFixed(4)} SOL` }
-export function solanaString(){ return wallet.sol.toFixed(4) }
-
-function persistWallet(){
-  if(wallet.address) localStorage.setItem(LS_WALLET, wallet.address)
-  localStorage.setItem(LS_WALLET_SOL, String(wallet.sol))
-  if(wallet.provider) localStorage.setItem(LS_WALLET_PROVIDER, wallet.provider)
-  else localStorage.removeItem(LS_WALLET_PROVIDER)
-  balanceCallback?.()
-}
-
-export async function setWallet(addr:string, provider: WalletState['provider'] = 'manual', _chain: WalletState['chain'] = 'solana'){
-  wallet.address=addr
-  wallet.provider=provider
-  wallet.chain='solana'
-  persistWallet()
-  
-  try{
-    const hw=getGpuRenderer()
-    await apiFetch('/wallet/connect', { method:'POST', body: JSON.stringify({ address: addr, hw }) })
-    
-    // Sign message flow for JWT auth (Phantom) OR generate token directly for manual/other providers
-    if (provider === 'phantom' && (window as any).solana?.signMessage) {
-      try {
-        const nonceRes = await apiFetch(`/auth/nonce?address=${addr}`)
-        const { nonce } = nonceRes
-        const message = `Sign in to AetherOS\nNonce: ${nonce}`
-        const messageBytes = new TextEncoder().encode(message)
-        const signed = await (window as any).solana.signMessage(messageBytes, 'utf8')
-        const signature = bs58.encode(signed.signature)
-        const verifyRes = await apiFetch('/auth/verify', { 
-          method: 'POST', 
-          body: JSON.stringify({ address: addr, signature }) 
-        })
-        console.log('🛡️ Auth verify response:', verifyRes)
-        if (verifyRes.token) {
-          setAuthToken(verifyRes.token)
-        }
-      } catch (e) {
-        console.warn('Sign message flow failed:', e)
-      }
-    } else {
-      // For manual/other providers: request token directly (dev mode)
-      try {
-        console.log('🔐 Attempting manual auth for:', addr)
-        const verifyRes = await apiFetch('/auth/verify', { 
-          method: 'POST', 
-          body: JSON.stringify({ address: addr, signature: 'manual-dev-bypass' }) 
-        })
-        console.log('🔐 Manual auth verify response:', verifyRes)
-        if (verifyRes.token) {
-          console.log('🔐 Setting auth token for manual wallet')
-          setAuthToken(verifyRes.token)
-        } else {
-          console.warn('🔐 No token in verify response')
-        }
-      } catch (e) {
-        console.warn('Manual auth flow failed:', e)
-      }
-    }
-    
-    const data = await apiFetch(`/wallet/${addr}`)
-    miner.balance = data.balance || 0
-    wallet.sol = data.sol || 0
-    wallet.solana = data.sol || 0
-    persistWallet()
-  }catch(e){
-    console.warn('Failed to fetch wallet balance:', e)
-  }
-}
-
-export function disconnectWallet(){
-  try{
-    const sol = (window as any).solana
-    if(sol?.disconnect) sol.disconnect()
-  }catch{}
-  wallet.address=null
-  wallet.provider=null
-  wallet.chain=null
-  clearAuthToken()
-  localStorage.removeItem(LS_WALLET)
-  localStorage.removeItem(LS_WALLET_PROVIDER)
-  localStorage.removeItem(LS_WALLET_CHAIN)
-  balanceCallback?.()
-}
-
-export function setNetwork(n:Network){
-  wallet.network=n
-  localStorage.setItem('aetheros:network', n)
-  balanceCallback?.()
-}
-
-export function rpcFor(n:Network){
-  if(n===ENV_NETWORK && ENV_RPC) return ENV_RPC
-  if(n==='mainnet-beta') return ENV_RPC && ENV_NETWORK==='mainnet-beta' ? ENV_RPC : 'https://api.mainnet-beta.solana.com'
-  if(n==='testnet') return ENV_RPC && ENV_NETWORK==='testnet' ? ENV_RPC : 'https://api.testnet.solana.com'
-  return ENV_RPC && ENV_NETWORK==='devnet' ? ENV_RPC : 'https://api.devnet.solana.com'
-}
-
-// --- Real extension helpers ---
-
-declare global {
-  interface Window {
-    solana?: any
-    phantom?: any
-  }
-}
-
-export function hasPhantom(): boolean {
-  const w = window as any
-  return !!(w.solana?.isPhantom || w.phantom?.solana?.isPhantom)
-}
-
-export async function connectPhantom(): Promise<string> {
-  const w = window as any
-  const sol = w.solana ?? w.phantom?.solana
-  if(!sol) throw new Error('Phantom not found')
-  const resp = await sol.connect({ onlyIfTrusted: false })
-  const pubkey = resp?.publicKey?.toString?.() ?? sol.publicKey?.toString?.()
-  if(!pubkey) throw new Error('No publicKey from Phantom')
-  await setWallet(pubkey, 'phantom', 'solana')
-  try{
-    sol.on?.('disconnect', ()=> { disconnectWallet() })
-    sol.on?.('accountChanged', (pk:any)=> {
-      if(!pk) disconnectWallet()
-      else {
-        const addr = pk?.toString?.() ?? String(pk)
-        wallet.address = addr; persistWallet()
-      }
-    })
-  }catch{}
-  return pubkey
-}
-
-export function providerLabel(): string {
-  if(!wallet.provider) return 'no wallet'
-  if(wallet.provider==='phantom') return 'Phantom ✓'
-  if(wallet.provider==='solflare') return 'Solflare ✓'
-  return wallet.provider
+export function setIntensity(v: number) {
+  miner.intensity = v
+  worker?.postMessage({ type: 'intensity', value: v })
 }

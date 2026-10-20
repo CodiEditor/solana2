@@ -6,15 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "tsx watch server/index.ts",
-    "dev:testnet": "vite --mode testnet",
-    "dev:mainnet": "vite --mode mainnet",
     "build": "tsc && vite build",
-    "build:testnet": "tsc && vite build --mode testnet",
-    "build:mainnet": "tsc && vite build --mode mainnet",
-    "build:all": "npm run build:testnet && npm run build:mainnet",
     "preview": "vite preview",
-    "preview:testnet": "vite preview --mode testnet",
-    "preview:mainnet": "vite preview --mode mainnet",
     "start": "node --import tsx/esm server/index.ts",
     "start:prod": "npm run build && npm start"
   },
@@ -27,9 +20,10 @@
     "vite": "^6.2.0"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.99.0",
-    "@types/bs58": "^4.0.4",
+    "@anthropic-ai/sdk": "^0.135.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "@wallet-standard/app": "^1.1.1",
+    "@wallet-standard/base": "^1.1.1",
     "bs58": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",
@@ -40,7 +34,6 @@
     "morgan": "^1.12.1",
     "tsx": "^4.23.15",
     "tweetnacl": "^1.0.3",
-    "viem": "^2.57.7",
     "zod": "^4.6.5"
   }
 }

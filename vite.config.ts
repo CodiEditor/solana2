@@ -1,7 +1,23 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 
-export default defineConfig(({ mode }) => ({
+// Social crawlers need absolute URLs for the share image. Vercel exposes the production domain
+// at build time. SITE_URL overrides it. With neither, the url and image tags are left out.
+function siteMeta(): Plugin {
+  return {
+    name: 'site-meta',
+    transformIndexHtml(html) {
+      const host = process.env.SITE_URL
+        || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+      const site = host.replace(/\/$/, '')
+      if (!site) return html.replace(/^.*(%SITE_URL%|og:image:).*\n/gm, '')
+      return html.replace(/%SITE_URL%/g, site)
+    },
+  }
+}
+
+export default defineConfig({
   base: './',
+  plugins: [siteMeta()],
   server: {
     proxy: {
       '/api': {
@@ -11,11 +27,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    outDir: mode === 'mainnet' ? 'dist-mainnet' : mode === 'testnet' ? 'dist-testnet' : 'dist',
+    outDir: 'dist',
     sourcemap: false,
   },
-  define: {
-    __APP_MODE__: JSON.stringify(mode),
-  },
-}))
-
+})

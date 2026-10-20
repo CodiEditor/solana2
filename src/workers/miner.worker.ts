@@ -1,132 +1,77 @@
-// Mining Web Worker
-// Computes SHA-256 hashes to find nonce that meets difficulty target
+// Mining worker: finds a nonce whose SHA-256(challenge + nonce) is at or below the target.
+// Runs on the CPU with the Web Crypto API. INTENSITY sets the share of each cycle spent hashing.
 
-interface MiningTask {
-  type: 'start'
-  challenge: string
-  difficulty: number
-  target: string
-}
+type InMessage =
+  | { type: 'start'; challenge: string; difficulty: number; target: string; intensity?: number }
+  | { type: 'intensity'; value: number }
+  | { type: 'stop' }
 
-interface StopTask {
-  type: 'stop'
-}
-
-type WorkerMessage = MiningTask | StopTask
-
-interface ProofMessage {
-  type: 'proof'
-  nonce: number
-  hash: string
-  challenge: string
-  attempts: number
-}
-
-interface StatsMessage {
-  type: 'stats'
-  hashrate: number
-  attempts: number
-}
+// Work in slices, then rest. Timers in a worker are clamped to about 4 ms once nested, so resting
+// after every small batch would cap the speed even at 100%.
+const SLICE_MS = 40
+const MAX_REST_MS = 2000
 
 let mining = false
-let currentChallenge: string | null = null
-let attempts = 0
-let startTime = 0
+let activeChallenge: string | null = null
+let intensity = 75
 
-// Convert hex string to Uint8Array
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substr(i, 2), 16)
-  }
-  return bytes
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+async function sha256Hex(message: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(message))
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
 }
 
-// Convert Uint8Array to hex string
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-// Compute SHA-256 hash
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(message)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = new Uint8Array(hashBuffer)
-  return bytesToHex(hashArray)
-}
-
-// Check if hash meets difficulty target
-function meetsTarget(hash: string, target: string): boolean {
-  return hash <= target
-}
-
-// Main mining loop
-async function mine(challenge: string, difficulty: number, target: string) {
+async function mine(challenge: string, target: string) {
   mining = true
-  currentChallenge = challenge
-  attempts = 0
-  startTime = Date.now()
+  activeChallenge = challenge
+  let attempts = 0
   let nonce = 0
-  let lastStatsTime = startTime
+  const startedAt = Date.now()
+  let lastStatsAt = startedAt
 
-  while (mining && currentChallenge === challenge) {
-    // Compute hash for current nonce
-    const input = challenge + nonce.toString()
-    const hash = await sha256(input)
-    attempts++
-
-    // Check if we found a valid proof
-    if (meetsTarget(hash, target)) {
-      self.postMessage({
-        type: 'proof',
-        nonce,
-        hash,
-        challenge,
-        attempts
-      } as ProofMessage)
-      
-      // Stop after finding proof - main thread will request new challenge
-      mining = false
-      break
+  while (mining && activeChallenge === challenge) {
+    const sliceStart = performance.now()
+    while (mining && activeChallenge === challenge && performance.now() - sliceStart < SLICE_MS) {
+      const hash = await sha256Hex(challenge + nonce.toString())
+      attempts++
+      if (hash <= target) {
+        // Report the measured rate first, so a quick share does not leave the display at 0 H/s.
+        const seconds = Math.max((Date.now() - startedAt) / 1000, 0.001)
+        self.postMessage({ type: 'stats', hashrate: Math.round(attempts / seconds), attempts })
+        self.postMessage({ type: 'proof', nonce, hash, challenge, attempts })
+        mining = false
+        return
+      }
+      nonce++
     }
 
-    nonce++
-
-    // Report stats every second
     const now = Date.now()
-    if (now - lastStatsTime >= 1000) {
-      const elapsed = (now - startTime) / 1000
-      const hashrate = Math.round(attempts / elapsed)
-      self.postMessage({
-        type: 'stats',
-        hashrate,
-        attempts
-      } as StatsMessage)
-      lastStatsTime = now
+    if (now - lastStatsAt >= 1000) {
+      self.postMessage({ type: 'stats', hashrate: Math.round(attempts / ((now - startedAt) / 1000)), attempts })
+      lastStatsAt = now
     }
 
-    // Yield to prevent blocking (every 100 hashes)
-    if (nonce % 100 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 0))
-    }
+    // Rest in proportion to the work just done, so intensity 50 hashes about half of the time.
+    const busy = performance.now() - sliceStart
+    const rest = intensity >= 100 ? 0 : Math.min(MAX_REST_MS, busy * (100 - intensity) / intensity)
+    await sleep(rest)
   }
 }
 
-// Handle messages from main thread
-self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
+self.onmessage = async (e: MessageEvent<InMessage>) => {
   const msg = e.data
-
   if (msg.type === 'start') {
     if (mining) {
-      mining = false // Stop current task
-      await new Promise(resolve => setTimeout(resolve, 10))
+      mining = false
+      await sleep(10)
     }
-    mine(msg.challenge, msg.difficulty, msg.target)
+    if (typeof msg.intensity === 'number') intensity = Math.min(100, Math.max(1, msg.intensity))
+    void mine(msg.challenge, msg.target)
+  } else if (msg.type === 'intensity') {
+    intensity = Math.min(100, Math.max(1, msg.value))
   } else if (msg.type === 'stop') {
     mining = false
-    currentChallenge = null
+    activeChallenge = null
   }
 }

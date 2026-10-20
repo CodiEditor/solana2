@@ -1,9 +1,9 @@
-/* SolanaOS — CherryOS exact replica theme — TypeScript */
+/* AetherOS theme */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Pixelify+Sans:wght@400;600;700&family=Silkscreen&display=swap');
 :root{
-  --ink:#3b1240;--ink2:#6a3a73;--inkSoft:rgba(59,18,64,.55);
+  --ink:#3b1240;--ink2:#6a3a73;--inkSoft:rgba(59,18,64,.72);
   --paper:#fff8fc;--paper2:#fdeef7;--line:rgba(59,18,64,.14);
-  --pink:#ff6fb1;--pinkDeep:#d63d86;--pinkSoft:#ffd3e8;--lilac:#c3a2ff;--sky:#8ccfff;--skyDeep:#4a96e8;--ice:#dff3ff;--mint:#7fe8b0;--amber:#ffe07a;
+  --pink:#ff6fb1;--pinkDeep:#c22d77;--pinkSoft:#ffd3e8;--lilac:#c3a2ff;--sky:#8ccfff;--skyDeep:#4a96e8;--ice:#dff3ff;--mint:#7fe8b0;--amber:#ffe07a;
   --term:#1c0b26;--term2:#2a1236;--termFg:#f7d9ea;--termDim:#a281ad;
   --title: linear-gradient(90deg,#ff7ab8 0%,#d9a0ff 52%,#8fd3ff 100%);
   --wall: linear-gradient(165deg,#ff8cc6 0%,#ffb3da 24%,#ecc4ff 52%,#b9e0ff 80%,#e2f4ff 100%);
@@ -47,7 +47,7 @@ button{font:inherit}
 @keyframes bob{50%{transform:translateY(-10px)}}
 @keyframes blink{50%{opacity:.25}}
 
-/* Has-maximized: icons jadi dock kiri seperti cherryOS tapi tetap terlihat semua (request user) */
+/* Has-maximized: icons become a left dock but stay fully visible */
 body.has-maximized .desktop-icons{
   left:8px;top:8px;bottom:calc(var(--taskbar) + 8px);width:102px;grid-auto-flow:row;grid-template-columns:1fr;grid-template-rows:none;grid-auto-rows:72px;gap:4px;
   background:rgba(255,248,252,.78);backdrop-filter:blur(12px);border:2px solid var(--ink);border-radius:12px;padding:8px 4px;overflow-y:auto;overflow-x:hidden;z-index:70;box-shadow:var(--shadow)
@@ -68,10 +68,11 @@ body.has-maximized .desktop-branding{opacity:0}
 .win-controls{margin-left:auto;display:flex;gap:5px;position:relative}
 .win-btn{width:22px;height:20px;border:2px solid var(--ink);border-radius:6px;background:var(--paper);display:grid;place-items:center;padding:0;box-shadow:2px 2px 0 rgba(59,18,64,.35);cursor:pointer;font-size:11px;color:var(--ink);line-height:1}
 .win-btn:active{transform:translate(1px,1px);box-shadow:none}
-.win-btn.close{background:var(--pink)!important;color:#fff}
+.win-btn.close{background:var(--pink)!important;color:var(--ink)}
 .window-body{flex:1;overflow:auto;position:relative;min-height:0;background:var(--paper)}
 .window.maximized .window-body{overflow-y:auto}
 @keyframes pop{from{transform:scale(.92);opacity:0}}
+.window.no-pop{animation:none}
 
 /* App content — cherryOS .pad + cards */
 .app-content{padding:16px;display:flex;flex-direction:column;gap:12px;height:100%}
@@ -333,7 +334,7 @@ body.has-maximized .desktop-branding{opacity:0}
   .taskbar-start-btn{height:36px;padding:0 14px;font-size:11px;flex-shrink:0}
   .taskbar-apps{flex:1 1 auto;min-width:0;gap:6px;overflow-x:auto}
   .taskbar-app{height:34px;padding:0 12px;font-size:10px;flex-shrink:0;border-radius:10px}
-  /* HANYA JAM — sembunyikan semua tray-item di HP */
+  /* Phone: show only the clock, hide every tray item */
   .taskbar-tray{flex:none;gap:0;background:none;border:none}
   .tray-item{display:none!important}
   .tray-time{
@@ -369,7 +370,7 @@ body.has-maximized .desktop-branding{opacity:0}
   .mobile-dock-hint{display:flex;position:fixed;bottom:calc(var(--taskbar) + 72px);left:50%;transform:translateX(-50%);z-index:40;gap:6px;padding:8px 14px;background:rgba(59,18,64,.88);color:#fff;border-radius:99px;font:400 10px var(--pixel);align-items:center;animation:hintPulse 2s infinite;pointer-events:none}
   .mobile-dock-hint::before{content:'↕';font-size:12px}
   body.has-maximized .mobile-scrim{display:block}
-  /* windows above dock/scrim — active paling depan */
+  /* windows above dock and scrim, the active one in front */
   #windows-container{ z-index:20 }
   .desktop-icons{ z-index:1 }
   body.has-maximized .desktop-icons{ z-index:1; pointer-events:none; opacity:.35 }
@@ -462,7 +463,7 @@ body.has-maximized .desktop-branding{opacity:0}
 .ck-input--sm{width:90px}
 .ck-btn{height:34px;padding:0 14px;border:2px solid var(--ink);border-radius:9px;background:#fff;font:400 11px var(--pixel);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
 .ck-btn--go{background:var(--mint)}
-.ck-btn--stop{background:var(--pink);color:#fff}
+.ck-btn--stop{background:var(--pink);color:var(--ink)}
 .ck-btn--ghost{background:var(--paper2)}
 .ck-btn--sm{height:28px;padding:0 10px;font-size:10px}
 .ck-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -491,7 +492,7 @@ body.has-maximized .desktop-branding{opacity:0}
 .ck-link{text-decoration:none;color:inherit}
 .ck-link:hover{transform:translateY(-1px);box-shadow:3px 3px 0 rgba(59,18,64,.15)}
 .ck-pre{white-space:pre-wrap;word-break:break-word;font:11px var(--mono);max-height:140px;overflow:auto;background:var(--paper2);border:1px solid var(--line);border-radius:8px;padding:8px}
-.ck-icon{width:44px;height:44px;display:grid;place-items:center;margin:0 auto;background:var(--title);border:2px solid var(--ink);border-radius:10px;color:#fff;font-size:20px}
+.ck-icon{width:44px;height:44px;display:grid;place-items:center;margin:0 auto;background:var(--title);border:2px solid var(--ink);border-radius:10px;color:var(--ink);font-size:20px}
 .ck-title{font:700 16px var(--display)}
 .ck-desc{font:11px var(--mono);color:var(--inkSoft);margin:4px 0}
 .ck-status{margin:8px 0;padding:8px;background:var(--paper2);border:2px solid var(--ink);border-radius:9px;font:11px var(--mono)}
@@ -513,3 +514,60 @@ body.has-maximized .desktop-branding{opacity:0}
 
 
 
+
+/* Additions for the narrowed release: keyboard focus, readable icon labels, four-column leaderboard, reduced motion */
+.desktop-icon{cursor:pointer;font:inherit;color:inherit}
+.desktop-icon span{font-size:11px}
+:is(button,a,input,select,[role="button"]):focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.ck-btn img{margin-right:8px;border-radius:4px;vertical-align:middle}
+.lb-table.lb4 .lb-header,.lb-table.lb4 .lb-row{grid-template-columns:40px 1.4fr .8fr 1fr}
+.lb-row.me{background:var(--paper2);font-weight:700}
+.lb-loading{padding:16px 12px;font:12px var(--mono);color:var(--inkSoft)}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}
+
+/* Four-column leaderboard on phones: the older 520px minimum width was made for five columns and hid CREDITS. */
+@media (max-width:760px){
+  .lb-table.lb4 .lb-header,.lb-table.lb4 .lb-row{min-width:0;gap:6px;padding:10px;grid-template-columns:28px minmax(0,1.4fr) minmax(0,.7fr) minmax(0,1fr)}
+  .lb-table.lb4 .lb-row{font-size:11px}
+}
+
+/* Terms and Privacy links under the brand block, which otherwise ignores the pointer */
+.brand-legal{margin-top:10px;display:flex;gap:8px;justify-content:center;font:500 11px var(--mono);pointer-events:auto}
+.brand-legal a{color:var(--ink);text-underline-offset:3px}
+.about-links{display:flex;gap:12px;justify-content:center;margin-top:8px}
+
+/* Credits values on light surfaces use a deeper blue; the dark miner terminal keeps the light one. */
+.app-content .t-sol,.cherry-app .ck-card:not(.ck-terminal) .t-sol,.lb-table .t-sol{color:#1f6bc4!important}
+
+/* Touch targets: standalone links and the intensity slider should be at least 24px tall. */
+.about-link,.brand-legal a{display:inline-block;padding:6px 4px;min-height:24px}
+input[type="range"]{min-height:24px}
+
+/* assistant.exe */
+.ai-app .ck-chat.ai-chat{max-height:none;min-height:180px;height:min(42vh,340px);padding:8px;background:var(--paper2);border:2px solid var(--line);border-radius:10px}
+.ai-app .ck-bubble{white-space:pre-wrap;word-break:break-word;line-height:1.5}
+.ai-app .ck-bubble.user{background:var(--pinkSoft);color:var(--ink)}
+.ai-app .ck-bubble.bot{background:#fff}
+.ai-typing{color:var(--inkSoft);font-style:italic}
+.ai-cut{display:block;margin-top:6px;font:10px var(--mono);color:var(--inkSoft)}
+.ai-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ai-head span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-compose{display:flex;gap:8px;align-items:flex-end}
+.ai-textarea{flex:1;min-width:0;width:100%;resize:vertical;border:2px solid var(--ink);border-radius:9px;padding:8px 10px;background:#fff;color:var(--ink);font:12px/1.5 var(--mono)}
+.ai-dataset{min-height:120px;max-height:40vh}
+.ai-label{font:400 10px var(--pixel);color:var(--inkSoft)}
+.ai-app .ck-input{width:100%;color:var(--ink)}
+.ai-file{position:relative;overflow:hidden}
+.ai-file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.ai-file:focus-within{outline:2px solid var(--pinkDeep);outline-offset:2px}
+.ai-gate{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ai-gate > span:nth-child(2){flex:1;min-width:160px}
+.ai-ellipsis{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-profile{max-height:240px}
+.ai-app .ck-btn:disabled{opacity:.55;cursor:not-allowed}
+@media (max-width:760px){
+  .ai-compose{flex-direction:column;align-items:stretch}
+  .ai-app .ck-chat.ai-chat{height:46vh}
+}
