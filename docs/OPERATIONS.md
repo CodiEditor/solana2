@@ -1,49 +1,33 @@
 # Operations
 
-How the self-hosted deployment runs, how to turn the assistant on, and what it costs. The Vercel and Railway route is in `README.md`.
+How the deployment runs on Vercel, how to turn the assistant on, and what it costs.
 
-## Layout on the server
+## Layout
 
 | What | Where |
 | --- | --- |
-| Code | `/srv/aetheros/app`, a `git archive` of the deployed commit, built on the server |
-| API | systemd `aetheros-api.service`, user `aetheros`, `node --import tsx/esm server/index.ts` on `127.0.0.1:4300` |
-| Settings | `/srv/aetheros/api.env`, owned by root, mode 600 (`NODE_ENV`, `PORT`, `JWT_SECRET`, `CORS_ORIGIN`, `DATA_DIR`, optional `ANTHROPIC_API_KEY` and `AI_*`) |
-| Data | `/var/lib/aetheros/data.json` (`DATA_DIR=/var/lib/aetheros`), the only path the service may write |
-| Backups | `aetheros-backup.timer` copies `data.json` to `/var/lib/aetheros/backups/data-YYYYMMDD.json` at 03:40 UTC and keeps 14 days |
-| Web | Caddy serves `/srv/aetheros/app/dist` with the CSP and security headers and proxies `/api/*` to port 4300 |
-
-`/srv/aetheros` must stay mode 711, or Caddy cannot read `dist` and every static file returns 403.
+| Frontend | Vercel static build of `dist` (`npm run build`) |
+| API | One Vercel Function, `api/index.ts`, holding the Express app from `server/app.ts`; `vercel.json` rewrites `/api/*` to it |
+| Data | Postgres from the Neon integration (`DATABASE_URL`). Tables are created on first use: `wallets`, `shares`, `counters`, `challenges`, `auth_nonces`, `profiles`, `ai_month`, `ai_inflight`, `rate_limits` |
+| Settings | Project environment variables: `DATABASE_URL` (set by the integration), `JWT_SECRET`, `CORS_ORIGIN`, optional `ADMIN_KEY`, `ANTHROPIC_API_KEY` and `AI_*` |
+| Logs | Vercel's runtime logs for the function |
+| Backups | Neon keeps point-in-time history for the branch; restore from the Neon console |
 
 ## Redeploy
 
-1. Upload the commit into a fresh folder: `git archive <commit> | ssh <server> "rm -rf /srv/aetheros/next && mkdir /srv/aetheros/next && tar -x -C /srv/aetheros/next"`.
-2. Build as the service user: `chown -R aetheros:aetheros /srv/aetheros/next`, then as `aetheros` in that folder: `npm ci`, `SITE_URL=https://<public origin> npm run build`, `npm prune --omit=dev`.
-3. Copy `data.json` into `backups/` with a timestamp.
-4. Swap: `systemctl stop aetheros-api`, `mv app app.prev`, `mv next app`, `systemctl start aetheros-api`.
-5. Check `/api/ping`, the page, `/terms.html` and the security headers. To roll back, swap `app.prev` back and restart. Settings and data live outside the code folder, so a swap never touches them.
+1. From a clean copy of the commit (`git archive <commit>` into an empty folder): `vercel link --project <project>`, then `vercel deploy --prod`.
+2. Check `/api/ping`, `/api/leaderboard`, the page, `/terms.html` and the security headers. To roll back, promote the previous deployment (`vercel rollback`). Data lives in Postgres, so a rollback never touches it; schema changes are additive (`CREATE TABLE IF NOT EXISTS`).
 
 ## Turning the assistant on
 
-Without a key the assistant window says it is offline and everything else runs as usual. To turn it on, add one line to `/srv/aetheros/api.env`:
-
-```
-ANTHROPIC_API_KEY=<key from console.anthropic.com>
-```
-
-then restart:
+Without a key the assistant window says it is offline and everything else runs as usual. To turn it on, add the key to the project's production environment without it passing through a terminal or a log, then redeploy so the function reads it:
 
 ```bash
-systemctl restart aetheros-api
+vercel env add ANTHROPIC_API_KEY production < anthropic-key.txt
+vercel deploy --prod
 ```
 
-Write the line without the key passing through a terminal or a log: send it from a file on stdin, strip line endings, replace any earlier line, keep mode 600:
-
-```bash
-ssh <server> 'umask 077 && k=$(tr -d " \r\n") && grep -v "^ANTHROPIC_API_KEY=" /srv/aetheros/api.env > /srv/aetheros/api.env.new && printf "ANTHROPIC_API_KEY=%s\n" "$k" >> /srv/aetheros/api.env.new && mv /srv/aetheros/api.env.new /srv/aetheros/api.env && systemctl restart aetheros-api && systemctl is-active aetheros-api' < anthropic-key.txt
-```
-
-Check: `/api/assistant/status` with a signed-in session reports `"enabled": true`, and after the first message `journalctl -u aetheros-api | grep assistant` shows one line per call with token counts and cost, never the text. Also set a monthly spend limit in the Anthropic Console as a second guard next to `AI_MONTHLY_BUDGET_USD`.
+Check: `/api/assistant/status` with a signed-in session reports `"enabled": true`, and after the first message the function logs show one `assistant message` line per call with token counts and cost, never the text. Also set a monthly spend limit in the Anthropic Console as a second guard next to `AI_MONTHLY_BUDGET_USD`.
 
 ## Assistant cost
 

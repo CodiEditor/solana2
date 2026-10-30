@@ -14,7 +14,7 @@ Credits are kept by the server and only spent inside the app. They are not a tok
 
 ## Credits
 
-One balance per wallet, kept in `data.json`. Every number below comes from the server, and the UI shows the server's values (`/api/wallet/:address`, `/api/mining/challenge`, `/api/assistant/status`) rather than its own copies.
+One balance per wallet, kept in Postgres. Every number below comes from the server, and the UI shows the server's values (`/api/wallet/:address`, `/api/mining/challenge`, `/api/assistant/status`) rather than its own copies.
 
 - Earned: `CREDITS_PER_SHARE` (default 1) for each accepted share. A share needs a SHA-256 hash of `challenge + nonce` at or below the target, which is `MINING_DIFFICULTY` leading zero hex digits (default 5, about 1,048,576 hashes).
 - Earning limits: at least `SUBMIT_COOLDOWN_MS` (default 10,000) between accepted shares of one wallet, and at most `DAILY_CREDIT_CAP` (default 1,000) per UTC day. A share that would pass the cap is refused, and the server stops issuing challenges until 00:00 UTC.
@@ -31,7 +31,7 @@ Code: `server/assistant.ts` (Claude calls, prompts, price math, Solana balance c
 - Model `claude-haiku-5-5` through the official `@anthropic-ai/sdk`. Profiles run at effort `medium` (streamed, 12,000 max tokens), chat at effort `low` (2,000 max tokens).
 - Without `ANTHROPIC_API_KEY` the window says the assistant is offline and everything else runs as usual.
 - Guards, all on the server, in the order they are checked: wallet first signed in at least `AI_MIN_WALLET_AGE_HOURS` ago, daily message and profile limits per wallet, enough credits, at least `AI_MIN_SOL` SOL on mainnet (cached 30 minutes, 1 minute when low), one call at a time per wallet, `AI_MAX_CONCURRENT` calls in total, and the monthly dollar cap.
-- The monthly cap reserves a worst-case estimate before each call (two characters per token, full `max_tokens`), then books the real cost from the response's `usage`. Spend is stored in `data.json` under `aiMonth` and resets on the 1st (UTC).
+- The monthly cap reserves a worst-case estimate before each call (two characters per token, full `max_tokens`), then books the real cost from the response's `usage`. Spend is stored in the `ai_month` table and resets on the 1st (UTC).
 - Credits are taken before the call and returned when the call fails, is declined (`stop_reason: refusal`) or comes back empty. Every call Claude answered counts toward the daily limit, declined ones included, so refusals cannot run up the bill.
 - Rough cost with the default prices: a chat message is about $0.0005 to $0.003, a profile from 150,000 characters about $0.01. One wallet at its daily limits costs at most about $0.35 a day, so `AI_MONTHLY_BUDGET_USD` is what bounds the bill when many wallets are active.
 - Each call logs one line (`assistant message|profile <short address> in= out= stop= cost= month=`) with no user text.
@@ -57,11 +57,11 @@ npm run dev       # frontend on http://localhost:5173, proxies /api to the API
 
 | Name | Purpose |
 | --- | --- |
-| `PORT` | API port (default 3000) |
+| `DATABASE_URL` | Postgres connection string (Neon's pooled URL on Vercel). The tables are created on first use. Without it the API answers 503 |
+| `PORT` | API port of the standalone server (default 3000) |
 | `CORS_ORIGIN` | Allowed browser origins, comma separated |
-| `JWT_SECRET` | Signs sign-in tokens. Set a long random value in production. When empty the server uses a random per-boot secret and sign-ins reset on every restart |
+| `JWT_SECRET` | Signs sign-in tokens. Set a long random value in production. When empty each instance uses its own random secret, so sign-ins break across instances: always set it on Vercel |
 | `ADMIN_KEY` | Enables `GET /api/wallets` for the `x-admin-key` header. Empty disables it |
-| `DATA_DIR` | Folder for `data.json`. The Dockerfile sets `/data`; mount a volume there so balances survive redeploys |
 | `MINING_DIFFICULTY` | Leading zero hex digits a hash needs (default 5, about 1,048,576 hashes per share) |
 | `CREDITS_PER_SHARE` | Credits added per accepted share (default 1) |
 | `DAILY_CREDIT_CAP` | Credits one wallet can earn per UTC day (default 1000) |
@@ -80,12 +80,13 @@ npm run dev       # frontend on http://localhost:5173, proxies /api to the API
 
 ## Deployment
 
-- Frontend: Vercel (`npm run build`, output `dist`). `vercel.json` rewrites `/api/*` to the backend and sets the security headers.
-- Backend: Railway from the `Dockerfile` (Node 24 Alpine, `NODE_ENV=production`). Add a volume mounted at `/data`.
+- Vercel runs both halves. The build (`npm run build`, output `dist`) is the frontend; `api/index.ts` is one Vercel Function holding the Express app, and `vercel.json` rewrites `/api/*` to it and sets the security headers.
+- Data: Postgres through Vercel's Neon integration, which sets `DATABASE_URL`. Set `JWT_SECRET` and `CORS_ORIGIN` in the project's environment variables as well.
+- Self-hosting: `npm start` runs the same API as a long-lived server (`server/index.ts`) and serves `dist` when it exists. The `Dockerfile` builds that server; give it `DATABASE_URL`.
 - Share cards: `public/og.png` is the 1200 x 630 share image. Social crawlers need an absolute URL, so the build fills `og:url` and `og:image` from `SITE_URL`, or from Vercel's `VERCEL_PROJECT_PRODUCTION_URL` when that is set. With neither, those tags are left out.
 
 ## Notes
 
-- Data lives in one JSON file. Without a volume at `DATA_DIR`, balances reset on redeploy. Writes are atomic and happen about two seconds after a change and on shutdown.
+- Nothing is kept in memory between requests except a short cache of SOL balances. Balances, shares, sign-in nonces, mining challenges, cooldowns, rate limits and assistant calls in progress are all rows in Postgres, so any number of function instances agree. A share is booked in one transaction that locks the wallet's challenge, so one proof pays once however many times it is sent.
 - Difficulty and the daily cap raise the cost of inflating the leaderboard. They do not stop someone who runs a GPU against many wallets.
 - `server/modal_app.py` is a Modal training sketch kept for later. Nothing in the app calls it.

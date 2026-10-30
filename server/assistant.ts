@@ -2,7 +2,7 @@
 // profile. This file holds the Claude calls, the prompts, the price math and the Solana balance check.
 // Routes, credits and limits live in index.ts.
 import Anthropic from '@anthropic-ai/sdk'
-import { envNumber } from './env'
+import { envNumber } from './env.js'
 
 export const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-5-5'
 
