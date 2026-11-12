@@ -570,6 +570,12 @@ input[type="range"]{min-height:24px}
   .ai-compose{flex-direction:column;align-items:stretch}
   .ai-app .ck-chat.ai-chat{height:46vh}
 }
+/* On a desktop the chat fills its window: the log takes the free height and the message box stays at the bottom. */
+@media (min-width:761px){
+  .window-body > .ai-app:has(> .ai-chat-card){height:100%}
+  .ai-app > .ai-chat-card{flex:1 0 auto}
+  .ai-app .ck-chat.ai-chat{flex:1 1 0;height:auto;min-height:180px}
+}
 
 /* Polish 2026-11-12: same look, cleaner details */
 /* The branding block's drop-shadow filter doubled every line of small text; the logo keeps its own outline. */

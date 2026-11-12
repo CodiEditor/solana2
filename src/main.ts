@@ -42,7 +42,7 @@ const APPS: Record<AppId, { title:string; icon:string }> = {
 }
 
 const WIN_SIZE: Record<AppId, { w:number; h:number }> = {
-  miner:{w:720,h:520}, assistant:{w:680,h:560}, wallet:{w:560,h:500},
+  miner:{w:720,h:520}, assistant:{w:680,h:760}, wallet:{w:560,h:500},
   leaderboard:{w:620,h:460}, readme:{w:640,h:560}, settings:{w:560,h:420},
 }
 
@@ -148,13 +148,15 @@ function openApp(id:AppId){
   // Each app opens at a size that fits its content, to the right of the desktop icons.
   const size = WIN_SIZE[id]
   const w = Math.min(size.w, window.innerWidth-136)
-  const h = Math.min(size.h, window.innerHeight-80)
   // On a wide screen the next window opens beside the open ones; otherwise windows cascade.
   const open = windows.filter(o => !o.minimized && !o.maximized)
   const rightEdge = open.reduce((m, o) => Math.max(m, o.x + o.w), 0)
   const beside = open.length > 0 && rightEdge + 24 + w <= window.innerWidth - 16
   const x = beside ? rightEdge + 24 : 124 + (windows.length%6)*28
   const y = beside ? 24 : 24 + (windows.length%6)*24
+  // The window ends above the taskbar, so nothing it holds (the assistant's message box) is hidden behind it.
+  const taskbar = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--taskbar')) || 46
+  const h = Math.max(320, Math.min(size.h, window.innerHeight - taskbar - y - 12))
   const phone=isPhone()
   const info:WindowInfo = { id:`win-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, appId:id, title:APPS[id].title, icon:APPS[id].icon, x, y, w, h, z: ++zCounter, minimized:false, maximized: phone }
   if(phone) haptic(25)
