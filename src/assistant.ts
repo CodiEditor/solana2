@@ -32,6 +32,19 @@ const st = {
   deleteArmedUntil: 0,
 }
 
+// Whether the assistant is open at all, known before a wallet connects. null until the first answer;
+// an unknown answer keeps the normal connect prompt.
+let available: boolean | null = null
+let availableAsked = false
+async function loadAvailable(ctx: Ctx) {
+  availableAsked = true
+  try {
+    const r = await apiFetch('/assistant/available') as { available?: unknown }
+    available = r.available === true
+    ctx.rerender()
+  } catch { availableAsked = false }
+}
+
 // A different wallet (or none) starts from a clean window: chats and drafts never carry over.
 function syncWallet() {
   if (st.address === wallet.address) return
@@ -145,15 +158,18 @@ export function assistantBody(): string {
         <button class="ck-tab ${tab === 'teach' ? 'on' : ''}" data-ai-tab="teach" role="tab" aria-selected="${tab === 'teach'}">TEACH</button>
       </div>` : ''}
     </div>`
+  const soon = `<div class="ck-card"><div class="ck-desc">Coming soon: your own assistant, taught from your own text and paid with the credits you mine. Mine in miner.exe now and your credits will be ready for it.</div><div><button class="ck-btn ck-btn--go" data-open="miner">OPEN MINER</button></div></div>`
   let body: string
-  if (!wallet.address) {
+  if (available === false) {
+    body = soon
+  } else if (!wallet.address) {
     body = `<div class="ck-card" style="text-align:center"><div class="ck-desc">Connect a wallet to use the assistant. Credits you mine pay for each message.</div><div><button class="ck-btn ck-btn--go" data-ai-connect>CONNECT WALLET</button></div></div>`
   } else if (!s) {
     body = st.load === 'error'
       ? `<div class="ck-card"><div class="ck-desc">Could not load the assistant.</div><div><button class="ck-btn ck-btn--ghost ck-btn--sm" data-ai-retry>TRY AGAIN</button></div></div>`
       : `<div class="ck-empty">Checking your wallet…</div>`
   } else if (!s.enabled) {
-    body = `<div class="ck-card"><div class="ck-desc">The assistant is offline right now. Mining and the leaderboard work as usual.</div></div>`
+    body = soon
   } else {
     body = (ready(s) ? '' : checksHTML(s)) + (tab === 'chat' ? chatHTML(s) : teachHTML(s))
   }
@@ -304,6 +320,7 @@ export function bindAssistant(ctx: Ctx) {
   const root = document.getElementById('ai-root')
   if (!root) return
   syncWallet()
+  if (available === null && !availableAsked) void loadAvailable(ctx)
   if (wallet.address && (st.load === 'idle' || (st.load === 'ready' && !st.busy && Date.now() - st.loadedAt > 60_000))) {
     void loadStatus(ctx)
   }

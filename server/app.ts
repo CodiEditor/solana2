@@ -105,7 +105,7 @@ async function getProfile(address: string): Promise<AssistantProfile | null> {
 
 // Every API route waits for the tables. Without a database the API says so instead of failing later.
 app.use('/api', async (req, res, next) => {
-  if (req.path === '/ping' || req.path === '/health') return next()
+  if (req.path === '/ping' || req.path === '/health' || req.path === '/assistant/available') return next()
   if (!dbConfigured) return res.status(503).json({ error: 'The service is starting up. Try again in a minute.' })
   try {
     await ensureSchema()
@@ -251,6 +251,11 @@ app.get('/api/ping', (_req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
+})
+
+// Public and database-free, so the assistant window can say whether it is open before a wallet connects.
+app.get('/api/assistant/available', (_req, res) => {
+  res.json({ available: ai.assistantEnabled() })
 })
 
 app.get('/api/stats', async (_req, res) => {
@@ -501,7 +506,7 @@ async function solOf(address: string, recheck = false): Promise<number | null> {
 }
 
 type Gate = { status: number; body: Record<string, unknown> }
-const offlineGate: Gate = { status: 503, body: { code: 'offline', error: 'The assistant is not available right now. Try again later.' } }
+const offlineGate: Gate = { status: 503, body: { code: 'offline', error: 'The assistant is coming soon.' } }
 
 async function assistantGate(address: string, kind: 'message' | 'profile', estimateUsd: number): Promise<Gate | null> {
   if (!ai.assistantEnabled()) return offlineGate
