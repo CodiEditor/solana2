@@ -30,8 +30,8 @@ function applyWallpaper(w: Wallpaper){
   document.body.style.background=WALLS[w]
 }
 
-// Pixel icons drawn for AetherOS (public/icons): 96 px for the desktop, 32 px for title bars, taskbar and menu.
-const appIcon = (id:AppId) => `<img class="app-ico" src="./icons/${id}-32.png" alt="" width="16" height="16"/>`
+// Pixel icons drawn for AetherOS (public/icons) at 32, 48, 96 and 144 px, picked by screen density.
+const appIcon = (id:AppId) => `<img class="app-ico" src="./icons/${id}-32.png" srcset="./icons/${id}-32.png 2x, ./icons/${id}-48.png 3x" alt="" width="16" height="16"/>`
 const APPS: Record<AppId, { title:string; icon:string }> = {
   miner:{title:'miner.exe', icon:appIcon('miner')},
   assistant:{title:'assistant.exe', icon:appIcon('assistant')},
@@ -72,7 +72,7 @@ function shellHTML(){
   <div id="desktop-icons" class="desktop-icons">
     ${Object.entries(APPS).map(([id,v])=>`
       <button type="button" class="desktop-icon" data-open="${id}" aria-label="Open ${v.title}">
-        <div class="icon-img" aria-hidden="true"><img src="./icons/${id}.png" alt="" width="36" height="36"/></div><span>${v.title}</span>
+        <div class="icon-img" aria-hidden="true"><img src="./icons/${id}-48.png" srcset="./icons/${id}.png 2x, ./icons/${id}-144.png 3x" alt="" width="36" height="36"/></div><span>${v.title}</span>
       </button>`).join('')}
   </div>
   <div class="desktop-branding">
@@ -101,9 +101,9 @@ function shellHTML(){
     <div class="start-menu-items">
       ${Object.entries(APPS).map(([id,v])=>`<div class="start-item" data-open="${id}">${v.icon} ${v.title} <small>${BLURB[id]??''}</small></div>`).join('')}
       <div class="start-sep"></div>
-      <a class="start-item" href="./terms.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">📜 terms <small>what credits are and the rules</small></a>
-      <a class="start-item" href="./privacy.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">🔒 privacy <small>what we store and what we do not</small></a>
-      <div class="start-item" id="start-shutdown"><span>⏻</span> shut down <small>stop mining, close everything</small></div>
+      <a class="start-item" href="./terms.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit"><span class="start-glyph" aria-hidden="true">§</span>terms <small>what credits are and the rules</small></a>
+      <a class="start-item" href="./privacy.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit"><span class="start-glyph" aria-hidden="true">¶</span>privacy <small>what we store and what we do not</small></a>
+      <div class="start-item" id="start-shutdown"><span class="start-glyph" aria-hidden="true">⏻</span>shut down <small>stop mining, close everything</small></div>
     </div>
   </div>
   <div id="shutdown-overlay" class="shutdown-overlay hidden">
@@ -122,7 +122,7 @@ function shellHTML(){
     .toast.success{background:#eafbf2} .toast.error{background:#ffe6ef;color:var(--pinkDeep)}
     .taskbar-app.minimized{opacity:.6;border-style:dashed}
     .window.active-win{box-shadow:6px 6px 0 rgba(59,18,64,.3), 0 24px 48px -20px rgba(194,45,119,.4) !important}
-    .start-item small{display:block;color:var(--inkSoft);font:400 10px var(--mono);margin-top:2px}
+    .start-item small{display:block;color:var(--inkSoft);font:400 11px var(--mono);margin-top:2px}
     .start-sep{height:2px;background:var(--line);margin:6px 4px}
   </style>
   `
@@ -497,7 +497,7 @@ function walletBody(): string {
     return `
     <div class="cherry-app">
       <div class="ck-card" style="text-align:center">
-        <div class="ck-icon">◆</div>
+        <div class="ck-icon ck-icon--img"><img src="./icons/wallet-48.png" srcset="./icons/wallet.png 2x, ./icons/wallet-144.png 3x" alt="" width="40" height="40"/></div>
         <div class="ck-title">Wallet connected</div>
         <div class="ck-status"><b>${esc(wallet.walletName ?? 'Wallet')}</b> · <span class="ck-mono">${esc(wallet.address.slice(0, 6))}…${esc(wallet.address.slice(-6))}</span></div>
         <div class="ck-grid2" style="margin-top:10px;text-align:left">
@@ -512,7 +512,7 @@ function walletBody(): string {
   return `
     <div class="cherry-app">
       <div class="ck-card" style="text-align:center">
-        <div class="ck-icon">◆</div>
+        <div class="ck-icon ck-icon--img"><img src="./icons/wallet-48.png" srcset="./icons/wallet.png 2x, ./icons/wallet-144.png 3x" alt="" width="40" height="40"/></div>
         <div class="ck-title">Connect wallet</div>
         <div class="ck-desc">You sign one message to sign in. No transaction is sent and nothing is charged.</div>
         ${wallets.length
