@@ -343,7 +343,7 @@ body.has-maximized .desktop-branding{opacity:0}
     font:500 8px/1 var(--pixel);white-space:nowrap;
     box-shadow:2px 2px 0 rgba(59,18,64,.2)
   }
-  .desktop-branding{right:50%;left:50%;transform:translateX(-50%);bottom:calc(var(--taskbar) + 18px);width:90vw}
+  .desktop-branding{left:5vw;right:5vw;width:auto;bottom:calc(var(--taskbar) + 18px)}
   .pixel-logo-text{font-size:36px}
   .pixel-tagline{font-size:8px}
   .brand-stats{gap:6px}
