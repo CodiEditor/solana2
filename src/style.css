@@ -1,5 +1,4 @@
 /* AetherOS theme */
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Pixelify+Sans:wght@400;600;700&family=Silkscreen&display=swap');
 :root{
   --ink:#3b1240;--ink2:#6a3a73;--inkSoft:rgba(59,18,64,.72);
   --paper:#fff8fc;--paper2:#fdeef7;--line:rgba(59,18,64,.14);
@@ -570,4 +569,36 @@ input[type="range"]{min-height:24px}
 @media (max-width:760px){
   .ai-compose{flex-direction:column;align-items:stretch}
   .ai-app .ck-chat.ai-chat{height:46vh}
+}
+
+/* Polish 2026-11-12: same look, cleaner details */
+/* The branding block's drop-shadow filter doubled every line of small text; the logo keeps its own outline. */
+.desktop-branding{filter:none}
+.pixel-logo-text{filter:drop-shadow(6px 6px 0 rgba(59,18,64,.16))}
+.pixel-tagline{font-size:12px;letter-spacing:.06em;opacity:1;color:var(--ink2)}
+.brand-pill{box-shadow:2px 2px 0 rgba(59,18,64,.16)}
+.brand-legal a{color:var(--ink2)}
+
+/* Desktop icons hold drawn pixel icons instead of emoji. */
+.desktop-icon .icon-img img{width:36px;height:36px;image-rendering:auto;display:block}
+.app-ico{width:16px;height:16px;image-rendering:auto;vertical-align:-3px;flex:none}
+.win-title .app-ico{margin-right:6px;filter:drop-shadow(1px 1px 0 rgba(59,18,64,.5))}
+.start-item .app-ico{width:20px;height:20px;margin-right:6px;vertical-align:-5px}
+
+/* Miner: the hashrate leads, the rest reads as one quiet grid. */
+.ck-terminal .ck-stats{grid-template-columns:repeat(3,1fr);gap:8px}
+.ck-terminal .ck-stats>div{order:2}
+.ck-terminal .ck-stats>div:has(#m-hashrate){order:0;grid-column:span 2;display:flex;flex-direction:column;justify-content:center;padding:12px 14px;background:rgba(127,232,176,.07);border-color:rgba(127,232,176,.22)}
+.ck-terminal .ck-stats>div:has(#m-status){order:1;display:flex;flex-direction:column;justify-content:center;padding:12px 14px}
+.ck-terminal .ck-stats b#m-hashrate{font:600 28px/1.1 var(--mono);letter-spacing:-.01em;margin-top:6px}
+.ck-terminal .ck-stats b#m-status{font:600 16px/1.2 var(--mono);margin-top:6px}
+.ck-stats span{font-size:10px;letter-spacing:.05em}
+.ck-stats b{font-size:14px}
+.ck-terminal .ck-card-head{letter-spacing:.04em}
+.cherry-kicker{font-size:10.5px}
+.ck-desc{font-size:11.5px;line-height:1.6}
+@media(max-width:760px){
+  .ck-terminal .ck-stats{grid-template-columns:1fr 1fr}
+  .ck-terminal .ck-stats>div:has(#m-hashrate){grid-column:1/-1}
+  .ck-terminal .ck-stats>div:has(#m-status){grid-column:1/-1}
 }

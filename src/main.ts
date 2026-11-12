@@ -30,13 +30,20 @@ function applyWallpaper(w: Wallpaper){
   document.body.style.background=WALLS[w]
 }
 
+// Pixel icons drawn for AetherOS (public/icons): 96 px for the desktop, 32 px for title bars, taskbar and menu.
+const appIcon = (id:AppId) => `<img class="app-ico" src="./icons/${id}-32.png" alt="" width="16" height="16"/>`
 const APPS: Record<AppId, { title:string; icon:string }> = {
-  miner:{title:'miner.exe', icon:'⛏️'},
-  assistant:{title:'assistant.exe', icon:'🤖'},
-  wallet:{title:'wallet.exe', icon:'👛'},
-  leaderboard:{title:'leaderboard', icon:'🏆'},
-  readme:{title:'readme.txt', icon:'📄'},
-  settings:{title:'settings', icon:'⚙️'},
+  miner:{title:'miner.exe', icon:appIcon('miner')},
+  assistant:{title:'assistant.exe', icon:appIcon('assistant')},
+  wallet:{title:'wallet.exe', icon:appIcon('wallet')},
+  leaderboard:{title:'leaderboard', icon:appIcon('leaderboard')},
+  readme:{title:'readme.txt', icon:appIcon('readme')},
+  settings:{title:'settings', icon:appIcon('settings')},
+}
+
+const WIN_SIZE: Record<AppId, { w:number; h:number }> = {
+  miner:{w:720,h:520}, assistant:{w:680,h:560}, wallet:{w:560,h:500},
+  leaderboard:{w:620,h:460}, readme:{w:640,h:560}, settings:{w:560,h:420},
 }
 
 const $ = <T extends HTMLElement>(s:string)=> document.querySelector(s) as T | null
@@ -65,7 +72,7 @@ function shellHTML(){
   <div id="desktop-icons" class="desktop-icons">
     ${Object.entries(APPS).map(([id,v])=>`
       <button type="button" class="desktop-icon" data-open="${id}" aria-label="Open ${v.title}">
-        <div class="icon-img" aria-hidden="true">${v.icon}</div><span>${v.title}</span>
+        <div class="icon-img" aria-hidden="true"><img src="./icons/${id}.png" alt="" width="36" height="36"/></div><span>${v.title}</span>
       </button>`).join('')}
   </div>
   <div class="desktop-branding">
@@ -110,11 +117,11 @@ function shellHTML(){
   </div>
   <div id="toasts" style="position:fixed;right:12px;bottom:66px;z-index:90;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
   <style>
-    .toast{padding:10px 14px;border-radius:10px;background:rgba(17,17,31,.97);border:1px solid rgba(255,255,255,.08);color:white;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:toastIn .18s ease}
+    .toast{padding:9px 13px;border-radius:10px;background:var(--paper);border:2px solid var(--ink);color:var(--ink);font:500 12px var(--mono);box-shadow:3px 3px 0 rgba(59,18,64,.24);animation:toastIn .18s ease}
     @keyframes toastIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-    .toast.success{border-color:rgba(20,241,149,.4)} .toast.error{border-color:rgba(255,77,106,.45)}
+    .toast.success{background:#eafbf2} .toast.error{background:#ffe6ef;color:var(--pinkDeep)}
     .taskbar-app.minimized{opacity:.6;border-style:dashed}
-    .window.active-win{box-shadow:0 24px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(153,69,255,.22) !important}
+    .window.active-win{box-shadow:6px 6px 0 rgba(59,18,64,.3), 0 24px 48px -20px rgba(194,45,119,.4) !important}
     .start-item small{display:block;color:var(--inkSoft);font:400 10px var(--mono);margin-top:2px}
     .start-sep{height:2px;background:var(--line);margin:6px 4px}
   </style>
@@ -138,10 +145,16 @@ function openApp(id:AppId){
     }
     return
   }
-  const w = Math.min(720, window.innerWidth-24)
-  const h = Math.min(520, window.innerHeight-80)
-  const x = 84 + (windows.length%6)*28
-  const y = 24 + (windows.length%6)*24
+  // Each app opens at a size that fits its content, to the right of the desktop icons.
+  const size = WIN_SIZE[id]
+  const w = Math.min(size.w, window.innerWidth-136)
+  const h = Math.min(size.h, window.innerHeight-80)
+  // On a wide screen the next window opens beside the open ones; otherwise windows cascade.
+  const open = windows.filter(o => !o.minimized && !o.maximized)
+  const rightEdge = open.reduce((m, o) => Math.max(m, o.x + o.w), 0)
+  const beside = open.length > 0 && rightEdge + 24 + w <= window.innerWidth - 16
+  const x = beside ? rightEdge + 24 : 124 + (windows.length%6)*28
+  const y = beside ? 24 : 24 + (windows.length%6)*24
   const phone=isPhone()
   const info:WindowInfo = { id:`win-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, appId:id, title:APPS[id].title, icon:APPS[id].icon, x, y, w, h, z: ++zCounter, minimized:false, maximized: phone }
   if(phone) haptic(25)
