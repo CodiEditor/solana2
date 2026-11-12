@@ -62,9 +62,13 @@ CREATE TABLE IF NOT EXISTS rate_limits (key text PRIMARY KEY, hits integer NOT N
 `
 
 // Created once per instance. The advisory lock stops two cold starts from creating the same table at once.
+// It is transaction-scoped on purpose: through Neon's transaction pooler a session lock and its unlock can
+// land on different server connections and leave the lock held. lock_timeout makes a stuck lock (or a
+// long write holding the table lock CREATE INDEX needs) fail this request fast; the next request retries.
 let ready: Promise<void> | null = null
 export function ensureSchema(): Promise<void> {
   ready ??= sql.begin(async tx => {
+    await tx`SET LOCAL lock_timeout = '10s'`
     await tx`SELECT pg_advisory_xact_lock(4300)`
     await tx.unsafe(SCHEMA)
   }).then(() => undefined).catch(e => { ready = null; throw e })
