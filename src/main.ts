@@ -61,7 +61,7 @@ function toast(msg:string, kind:'success'|'info'|'error'='info'){
 function shellHTML(){
   const BLURB:Record<string,string>={
     'miner':'mine credits in this tab',
-    'assistant':'your own assistant, coming soon',
+    'assistant':'spend credits on your own assistant',
     'wallet':'connect or disconnect',
     'leaderboard':'top wallets by shares',
     'readme':'how AetherOS works',
@@ -77,7 +77,7 @@ function shellHTML(){
   </div>
   <div class="desktop-branding">
     <div class="pixel-logo-text">AetherOS</div>
-    <div class="pixel-tagline">MINE CREDITS IN YOUR BROWSER<br/>CLIMB THE LEADERBOARD</div>
+    <div class="pixel-tagline">MINE CREDITS IN YOUR BROWSER<br/>SPEND THEM ON YOUR OWN ASSISTANT</div>
     <div class="brand-stats">
       <div class="brand-pill"><span class="dot"></span> <b id="brand-hash">0 H/s</b> hashrate</div>
       <div class="brand-pill">credits <b id="brand-credits">${miner.balance.toFixed(4)}</b></div>
@@ -454,7 +454,7 @@ const logLineHTML = (l: LogLine) =>
 
 const minerStatus = () => !miner.running ? 'stopped' : miner.waiting ? 'waiting' : 'mining'
 const dailyText = () => miner.dailyCap === null
-  ? 'Each accepted share adds credits to your balance. Shares set your place on the leaderboard, and credits will pay for your own assistant, coming soon.'
+  ? 'Each accepted share adds credits to your balance. Shares set your place on the leaderboard, and credits pay for the assistant.'
   : `Each accepted share adds ${miner.creditsPerShare ?? 1} cr. Daily limit ${miner.dailyCap} cr per wallet, resetting at 00:00 UTC. Today: ${miner.dailyEarned} of ${miner.dailyCap} cr.`
 
 function minerBody(): string {
@@ -557,9 +557,8 @@ function appBody(id: AppId): string {
       <pre class="readme-pre">AetherOS
 ========
 
-Mine credits in your browser and climb the leaderboard. Coming
-soon: an assistant that learns from your own text, paid with
-your credits.
+Mine credits in your browser, then spend them on an assistant
+that learns from your own text.
 
 HOW IT WORKS
 
@@ -575,7 +574,7 @@ HOW IT WORKS
    wallet and the wait between shares are set by the server and
    shown in miner.exe.
 
-4. Coming soon: assistant.exe. In TEACH, upload a text file
+4. Spend credits in assistant.exe. In TEACH, upload a text file
    or paste text. Claude, a model by Anthropic, reads it once and
    writes a profile of its voice and knowledge. In CHAT, your
    assistant answers from that profile. Prices, the daily limits
@@ -587,13 +586,13 @@ HOW IT WORKS
 THE APPS
 
 miner.exe      start and stop mining
-assistant.exe  your own assistant, coming soon
+assistant.exe  teach and chat with your own assistant
 wallet.exe     connect or disconnect your wallet
 leaderboard    top wallets by shares
 settings       wallpaper
 readme.txt     this file
 
-WHO CAN USE THE ASSISTANT (COMING SOON)
+WHO CAN USE THE ASSISTANT
 
 A wallet can use it 24 hours after its first sign-in here, and
 while it holds at least 0.01 SOL on Solana. The SOL is only
@@ -602,7 +601,7 @@ returned if the assistant cannot answer.
 
 GOOD TO KNOW
 
-Credits are kept by this site. They will pay for the assistant and
+Credits are kept by this site. They pay for the assistant and
 cannot be bought, sold or exchanged for money. They are not a
 token.
 Mining stops when you close the tab.
@@ -622,7 +621,7 @@ not stored here.</pre>
         <div class="settings-section"><div class="ss-title">WALLPAPER (Pick a theme)</div><div class="wallpaper-options">
           ${(['aurora', 'dusk', 'night', 'neon'] as Wallpaper[]).map(w => `<div class="wp-opt ${wallpaper === w ? 'active' : ''}" data-wp="${w}" role="button" tabindex="0" aria-label="Wallpaper ${w}"><div class="wp-swatch"></div><div class="wp-label">${w}${wallpaper === w ? ' ✓' : ''}</div></div>`).join('')}
         </div></div>
-        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◆ AetherOS</div><div class="about-ver">v1.0.0</div><div class="about-desc">Mine credits in your browser with a Solana wallet and climb the leaderboard. Your own assistant is coming soon.</div><div class="about-links"><a class="about-link" href="./terms.html" target="_blank" rel="noopener noreferrer">Terms</a><a class="about-link" href="./privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></div></div></div>
+        <div class="settings-section"><div class="ss-title">ABOUT</div><div class="about-box"><div class="about-logo">◆ AetherOS</div><div class="about-ver">v1.0.0</div><div class="about-desc">Mine credits in your browser with a Solana wallet and spend them on your own assistant.</div><div class="about-links"><a class="about-link" href="./terms.html" target="_blank" rel="noopener noreferrer">Terms</a><a class="about-link" href="./privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></div></div></div>
       </div>
     </div>`
 }

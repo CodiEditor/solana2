@@ -20,7 +20,7 @@ How the deployment runs on Vercel, how to turn the assistant on, and what it cos
 
 ## Turning the assistant on
 
-Without a key the assistant window shows a coming-soon card (driven by the public `/api/assistant/available`) and everything else runs as usual. The static copy (meta description, desktop tagline and icon hint, miner hint, readme.txt, About, and the assistant lines in terms.html) also says "coming soon"; that wording lives in one commit, "Copy: mark the assistant as coming soon", so revert that commit in the same deploy that turns the key on. To turn it on, add the key to the project's production environment without it passing through a terminal or a log, then redeploy so the function reads it:
+Without a key the assistant window shows a coming-soon card (driven by the public `/api/assistant/available`) and everything else runs as usual. The key has been set since 2026-11-12; if it is ever removed, also bring back the coming-soon static copy (meta description, tagline, hints, readme.txt, About, terms.html) from commit 64fe368. To turn it on, add the key to the project's production environment without it passing through a terminal or a log, then redeploy so the function reads it:
 
 ```bash
 vercel env add ANTHROPIC_API_KEY production < anthropic-key.txt
