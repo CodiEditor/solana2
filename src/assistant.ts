@@ -158,7 +158,7 @@ export function assistantBody(): string {
         <button class="ck-tab ${tab === 'teach' ? 'on' : ''}" data-ai-tab="teach" role="tab" aria-selected="${tab === 'teach'}">TEACH</button>
       </div>` : ''}
     </div>`
-  const soon = `<div class="ck-card"><div class="ck-desc">Coming soon: your own assistant, taught from your own text and paid with the credits you mine. Mine in miner.exe now and your credits will be ready for it.</div><div><button class="ck-btn ck-btn--go" data-open="miner">OPEN MINER</button></div></div>`
+  const soon = `<div class="ck-card"><div class="ck-desc">Coming soon. Mine in miner.exe now and your credits will be ready for it.</div><div><button class="ck-btn ck-btn--go" data-open="miner">OPEN MINER</button></div></div>`
   let body: string
   if (available === false) {
     body = soon
